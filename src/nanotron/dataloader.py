@@ -339,7 +339,7 @@ class DataCollatorForCLM:
     output_pp_rank: int
     parallel_context: ParallelContext
     padding_index: int
-    unkown_index: int
+    unknown_index: int
 
     def __call__(self, examples: List[Dict[str, List[np.ndarray]]]) -> Dict[str, Union[torch.Tensor, TensorPointer]]:
         # Process the case when current rank doesn't require data. We return `TensorPointer` that points to ranks having the data.
@@ -380,7 +380,7 @@ class DataCollatorForCLM:
             result["input_mask"] = np.ones((batch_size, self.sequence_length), dtype=np.bool_)
 
             # Set input_mask 0 for padding tokens
-            padding_mask = input_ids == self.padding_index
+            padding_mask = result["input_ids"] == self.padding_index
             result["input_mask"][padding_mask] = 0
 
         # Process labels: shift them to the left
@@ -389,8 +389,8 @@ class DataCollatorForCLM:
             result["label_mask"] = np.ones((batch_size, self.sequence_length), dtype=np.bool_)
 
             # Set label_mask 0 for padding tokens and unknown tokens
-            padding_mask = input_ids == self.padding_index
-            unknown_mask = input_ids == self.unkown_index
+            padding_mask = result["label_ids"] == self.padding_index
+            unknown_mask = result["label_ids"] == self.unknown_index
             label_mask = padding_mask | unknown_mask
             result["label_mask"][label_mask] = 0
 

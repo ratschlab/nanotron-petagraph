@@ -24,6 +24,18 @@ from io import StringIO
 from nanotron.logging import log_rank
 
 
+# =============================================================================
+# Utility functions
+# =============================================================================
+def cyclic_iter(iter):
+    while True:
+        for x in iter:
+            yield x
+
+
+# =============================================================================
+# Dataset class
+# =============================================================================
 class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
     def __init__(self, 
@@ -45,6 +57,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self.create_attention_mask = create_attention_mask
         self.debug = debug
 
+        self.logger = logger
         self.logging_func = partial(log_rank, logger=logger, level=logging.INFO, rank=0)
         self.logging_func("=====================================")
         self.logging_func(f"Creating PetaGraphStreamDataset with maxlen {maxlen}")
@@ -116,11 +129,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
         self.logging_func("=====================================")
 
-    def cyclic_iter(iter):
-        while True:
-            for x in iter:
-                yield x
-
     def decompression_func(self, input_data):
         path, data = input_data
         # if self.debug:
@@ -154,19 +162,19 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
         return sequences
 
-    def crop_maxlen(self, input_data: tuple[str, str]):
-        path, input_sequence = input_data
+    def crop_maxlen(self, input_sequence: str):
+        # path, input_sequence = input_data
         maxlen_without_special_tokens = self.maxlen - 2
         if len(input_sequence) <= maxlen_without_special_tokens:
-            return path, input_sequence
+            return input_sequence
         else:
             # Crop the sequence to the maximum length
             # Get random starting point
             start = random.randint(0, len(input_sequence) - maxlen_without_special_tokens)
-            return path, input_sequence[start:start + maxlen_without_special_tokens]
+            return input_sequence[start:start + maxlen_without_special_tokens]
 
-    def tokenize_and_pad(self, input_data: tuple[str, str]):
-        path, input_sequence = input_data
+    def tokenize_and_pad(self, input_sequence: str):
+        # path, input_sequence = input_data
         maxlen = self.maxlen
 
         # Tokenize the sequence
@@ -176,6 +184,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         tokenized_sequence = np.array(tokenized_sequence, dtype=np.int32)
 
         # Pad the sequence
+
         if len(tokenized_sequence) < maxlen:
             # 2 is the PAD token
             tokenized_sequence = np.pad(tokenized_sequence,
@@ -186,25 +195,34 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         # if len(tokenized_sequence) < maxlen:
         #     tokenized_sequence.extend([2] * (maxlen - len(tokenized_sequence))) # 2 is the PAD token
 
-        return path, tokenized_sequence
+        return tokenized_sequence
         
     # def __len__(self):
     #     return self.samples_per_epoch
+
+    def generate(self):
+        while True:
+            # if self.debug:
+            #     print(f"[{self.__class__.__name__}] Getting item {idx}")
+
+            try:
+                source_path, text_raw = next(self.iterable_dataset)
+            except StopIteration:  
+                self.logger.warning(f"Reached end of dataset, restarting from the beginning")
+            text_cropped = self.crop_maxlen(text_raw)
+            text_tokenized = self.tokenize_and_pad(text_cropped)
+
+            yield {"input_ids": text_tokenized}
     
-    def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
+    # def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
+    def __iter__(self) -> dict[str, np.ndarray]:
+
         """Abstract method implementation
 
         Returns:
             Dict[str, torch.Tensor]: The sample information wrapped in a dictionary
         """
-        # if self.debug:
-        #     print(f"[{self.__class__.__name__}] Getting item {idx}")
-
-        source_path, text_raw = next(self.iterable_dataset)
-        text_cropped = self.crop_maxlen(text_raw)
-        text_tokenized = self.tokenize_and_pad(text_cropped)
-
-        return text_tokenized
+        return cyclic_iter(self.generate())
 
 
 

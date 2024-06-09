@@ -111,9 +111,11 @@ class NanosetDatasetsArgs:
 class DataArgs:
     """Arguments related to the data and data files processing"""
 
-    dataset: Union[PretrainDatasetsArgs, NanosetDatasetsArgs]
+    dataset: Optional[Union[PretrainDatasetsArgs, NanosetDatasetsArgs]]
     seed: Optional[int]
     num_loading_workers: Optional[int] = 1
+    sequence_files_path: Optional[str] = None
+    prefetch_buffer_seq_size: Optional[int] = 1
 
     def __post_init__(self):
         if self.seed is None:

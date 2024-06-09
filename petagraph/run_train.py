@@ -12,7 +12,6 @@ from typing import Dict, cast
 from pathlib import Path
 from tqdm import tqdm
 
-import datasets
 import numpy as np
 from nanotron import logging
 from nanotron.config import (
@@ -88,7 +87,7 @@ def get_dataloader_from_data_stage(
         assert VOCABULARY["PAD"] == pad_config_id, "PAD token ID mismatch"
 
         # Load the sequence file candidates
-        sequence_files_path = Path(data.sequence_file_paths)
+        sequence_files_path = Path(data.sequence_files_path)
         log_rank(f"Loading sequence files from {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
 
         # Load files with lines
@@ -107,13 +106,16 @@ def get_dataloader_from_data_stage(
             accession = line.strip().strip("\n")
             url = url_format.format(accession=accession)
             all_files.append(url)
-        log_rank(f"Found {len(all_files)} files", logger=logger, level=logging.INFO, rank=0)
+        log_rank(f"Found {len(all_files)} {load_type} files", logger=logger, level=logging.INFO, rank=0)
 
         # TODO: if resuming from a checkpoint, we need to skip the already consumed files
+        if consumed_train_samples > 0:
+            raise NotImplementedError("Resuming from a checkpoint is not yet supported")
 
         # Compute size and rank of dataloader workers
         dp_ranks_size = trainer.parallel_context.dp_pg.size()
         dp_rank = trainer.parallel_context.dp_pg.rank()
+        log_rank(f"Splitting files across {dp_ranks_size} data parallel ranks", logger=logger, level=logging.INFO, rank=0)
 
         # We do not use a sampler and handle data parallelism at the file level
         # We need to split the files between the ranks
@@ -124,11 +126,18 @@ def get_dataloader_from_data_stage(
             end_idx = len(all_files)
 
         train_sequence_files = all_files[start_idx:end_idx]
+        for r in range(dp_ranks_size):
+            log_rank(f"Rank {r} has {len(train_sequence_files)} train files, eg.: {train_sequence_files[:2]}",
+                     logger=logger, level=logging.INFO, rank=r)
 
         # TODO: If we are using pipeline parallelism, then we use the same approach
         # as in dataloader.get_train_dataloader and create a dummy dataset on the 
         # ranks, which are not part of input or output pipeline parallel ranks.
-
+        pp_ranks_size = trainer.parallel_context.pp_pg.size()
+        if pp_ranks_size > 1:
+            warning_msg = "Pipeline parallelism currently very inefficient with custom dataloader"
+            warning_msg = "\nThe ranks which do not participate in either input or output still load data"
+            log_rank(warning_msg, logger=logger, level=logging.WARNING, rank=0)
 
 
         ###########################################################################################################
@@ -145,11 +154,14 @@ def get_dataloader_from_data_stage(
         # )
 
         train_dataset = PetaGraphStreamDataset(
+            logger=logger,
             url_list=train_sequence_files,
+            vocabulary=VOCABULARY,
             from_cloud=True, # not mock_data,
             maxlen=trainer.sequence_length + 1,
             create_attention_mask=True,
             prefetch_sequences=data.prefetch_buffer_seq_size,
+
         )
         ###########################################################################################################
 
@@ -159,7 +171,12 @@ def get_dataloader_from_data_stage(
             input_pp_rank=input_pp_rank,
             output_pp_rank=output_pp_rank,
             parallel_context=trainer.parallel_context,
+            padding_index=pad_config_id,
+            unknown_index=VOCABULARY["UNK"],
         )
+
+        num_dl_workers = 0
+        log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
 
         return DataLoader(
             train_dataset,
