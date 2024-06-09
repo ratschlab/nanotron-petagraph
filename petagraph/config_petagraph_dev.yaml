@@ -28,7 +28,7 @@ logging:
   log_level_replica: info
 model:
   ddp_bucket_cap_mb: 25
-  dtype: float32 # bfloat16
+  dtype: bfloat16 # bfloat16
   init_method:
     std: 0.025
   make_vocab_size_divisible_by: 1
