@@ -13,6 +13,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 import numpy as np
+import pandas as pd
 from nanotron import distributed as dist
 from nanotron import logging
 from nanotron.config import (
@@ -117,12 +118,21 @@ def get_dataloader_from_data_stage(
         else:
             raise ValueError("Data path must contain either 'unitig' or 'contig'")
         
+        # If .csv file, load data from csv file
+        if sequence_files_path.suffix == ".csv":
+            log_rank(f"Loading data from csv file at {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
+            all_files_df = pd.read_csv(sequence_files_path)
+            all_files = [url_format.format(accession=accession) for accession in all_files_df["accession"].tolist()]
+        
         # Load data from text file
-        all_files = []
-        for line in sequence_files_path.open():
-            accession = line.strip().strip("\n")
-            url = url_format.format(accession=accession)
-            all_files.append(url)
+        else:
+            log_rank(f"Loading data from text file at {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
+            all_files = []
+            for line in sequence_files_path.open():
+                accession = line.strip().strip("\n")
+                url = url_format.format(accession=accession)
+                all_files.append(url)
+
         log_rank(f"Found {len(all_files)} {load_type} files", logger=logger, level=logging.INFO, rank=0)
 
         # TODO: if resuming from a checkpoint, we need to skip the already consumed files

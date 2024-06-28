@@ -157,7 +157,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         #     self.logging_func(f"[{self.__class__.__name__}] Parsing {path}")
 
         sequences = []
-        current_sequence = ""
         decoded_lines = data.decode() # .split("\n")
         # if self.debug:
         #     self.logging_func(f"[{self.__class__.__name__}] Found {len(decoded_lines)} lines in {path}")
