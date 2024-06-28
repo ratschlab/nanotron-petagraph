@@ -50,6 +50,8 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         prefetch_sequences: int = 4096,
         prefetch_decompressed_files: int = 10,
         prefetch_fasta_parsing: int = 10,
+        log_directory: Path = None,
+        rank: int = 0,
     ):
 
         self.samples_per_epoch = samples_per_epoch
@@ -126,6 +128,12 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         warmup_sample_size = 1024
         for _ in range(warmup_sample_size):
             _ = next(self.iterable_dataset)
+
+        self.rank = rank
+        self.log_directory = log_directory
+        self.consumed_files = set()
+        if self.log_directory is not None:
+            self.logging_func(f"Logging to {self.log_directory} on rank {self.rank}")
 
         self.logging_func("=====================================")
 
@@ -207,6 +215,12 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
             try:
                 source_path, text_raw = next(self.iterable_dataset)
+                if self.log_directory is not None:
+                    if source_path not in self.consumed_files:
+                        out_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
+                        with open(out_path, "a") as f:
+                            f.write(f"{source_path}\n")
+                self.consumed_files.add(source_path)
             except StopIteration:  
                 self.logger.warning(f"Reached end of dataset, restarting from the beginning")
             text_cropped = self.crop_maxlen(text_raw)

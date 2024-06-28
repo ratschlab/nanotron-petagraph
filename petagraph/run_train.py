@@ -13,6 +13,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 import numpy as np
+from nanotron import distributed as dist
 from nanotron import logging
 from nanotron.config import (
     DataArgs,
@@ -49,6 +50,21 @@ from nanotron.data.petagraph_dataset import PetaGraphStreamDataset
 logger = logging.get_logger(__name__)
 
 
+class EmptyInfiniteDataset:
+    """Hack as removing all columns from a datasets.Dataset makes the number of rows 0."""
+
+    def __init__(self, length: int):
+        self._length = length
+
+    def __getitem__(self, item) -> Dict:
+        if isinstance(item, int):
+            return {}
+        raise NotImplementedError(f"{item} of type {type(item)} is not supported yet")
+
+    def __len__(self) -> int:
+        return self._length
+
+
 def get_dataloader_from_data_stage(
     trainer: DistributedTrainer,
     data: DataArgs,
@@ -70,6 +86,7 @@ def get_dataloader_from_data_stage(
 
     # Case 1: custom data generator
     if data.dataset is None:
+
         log_rank("Using custom data generator", logger=logger, level=logging.INFO, rank=0)
 
         # Configure vocabulary
@@ -130,40 +147,34 @@ def get_dataloader_from_data_stage(
             log_rank(f"Rank {r} has {len(train_sequence_files)} train files, eg.: {train_sequence_files[:2]}",
                      logger=logger, level=logging.INFO, rank=r)
 
-        # TODO: If we are using pipeline parallelism, then we use the same approach
+        # Set or read from config dataloader workers
+        num_dl_workers = 0
+
+        # If we are using pipeline parallelism, then we use the same approach
         # as in dataloader.get_train_dataloader and create a dummy dataset on the 
         # ranks, which are not part of input or output pipeline parallel ranks.
         pp_ranks_size = trainer.parallel_context.pp_pg.size()
-        if pp_ranks_size > 1:
-            warning_msg = "Pipeline parallelism currently very inefficient with custom dataloader"
-            warning_msg = "\nThe ranks which do not participate in either input or output still load data"
-            log_rank(warning_msg, logger=logger, level=logging.WARNING, rank=0)
+        if pp_ranks_size > 1 and dist.get_rank(trainer.parallel_context.pp_pg) not in [
+            input_pp_rank, output_pp_rank,
+        ]:
+            dataset_length = len(train_sequence_files) * 100_000
+            train_dataset = EmptyInfiniteDataset(length=dataset_length)
+            # No need to spawn a lot of workers, we can just use main
+            num_dl_workers = 0
 
-
-        ###########################################################################################################
-        # This can be replaced with your own tokenized data generator
-        ###########################################################################################################
-        # train_dataset = datasets.Dataset.from_dict(
-        #     {
-        #         "input_ids": np.random.randint(
-        #             0,
-        #             trainer.config.model.model_config.vocab_size,
-        #             (trainer.global_batch_size * num_remaining_train_steps, trainer.sequence_length + 1),
-        #         ),
-        #     }
-        # )
-
-        train_dataset = PetaGraphStreamDataset(
-            logger=logger,
-            url_list=train_sequence_files,
-            vocabulary=VOCABULARY,
-            from_cloud=True, # not mock_data,
-            maxlen=trainer.sequence_length + 1,
-            create_attention_mask=True,
-            prefetch_sequences=data.prefetch_buffer_seq_size,
-
-        )
-        ###########################################################################################################
+        else:
+            rank = dist.get_global_rank()
+            train_dataset = PetaGraphStreamDataset(
+                logger=logger,
+                url_list=train_sequence_files,
+                vocabulary=VOCABULARY,
+                from_cloud=True, # not mock_data,
+                maxlen=trainer.sequence_length + 1,
+                create_attention_mask=True,
+                prefetch_sequences=data.prefetch_buffer_seq_size,
+                log_directory=trainer.config.checkpoints.checkpoints_path
+                rank=rank
+            )
 
 
         data_collator = DataCollatorForCLM(
@@ -175,7 +186,6 @@ def get_dataloader_from_data_stage(
             unknown_index=VOCABULARY["UNK"],
         )
 
-        num_dl_workers = 0
         log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
 
         return DataLoader(
@@ -183,15 +193,13 @@ def get_dataloader_from_data_stage(
             batch_size=trainer.micro_batch_size,
             collate_fn=data_collator,
             drop_last=True,
-            num_workers=0,
+            num_workers=num_dl_workers,
             pin_memory=True,
             worker_init_fn=get_dataloader_worker_init(dp_rank=trainer.parallel_context.dp_pg.rank()),
         )
     
     else:
         raise ValueError(f"Unhandled case of `self.config.data.dataset`. Got: {data.dataset}")
-
-    return dataloader
 
 
 def get_dataloader(trainer: DistributedTrainer) -> Dict[str, DataLoader]:
