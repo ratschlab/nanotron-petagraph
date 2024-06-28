@@ -1,6 +1,6 @@
 checkpoints:
   checkpoint_interval: 10
-  checkpoints_path: petagraph/dev/checkpoints
+  checkpoints_path: /users/burgerm/petagraph/logs/dev/checkpoints
   checkpoints_path_is_shared_file_system: true
   resume_checkpoint_path: null
   save_initial_state: false
@@ -9,7 +9,7 @@ data_stages:
     dataset: null # Custom dataloader will be used
     num_loading_workers: 1
     seed: 42
-    sequence_files_path: "/users/burgerm/petagraph/resources/contigs_names.txt"
+    sequence_files_path: "/users/burgerm/petagraph/resources/training_sets/train_undersample_20_genomic_wgs_fungi_2022.csv"
     prefetch_buffer_seq_size: 32768
   name: Stable Training Stage
   start_training_step: 1
@@ -36,11 +36,11 @@ model:
     bos_token_id: 0
     eos_token_id: 1
     hidden_act: silu
-    hidden_size: 16
+    hidden_size: 64
     initializer_range: 0.02
-    intermediate_size: 64
+    intermediate_size: 256
     is_llama_config: true
-    max_position_embeddings: 256
+    max_position_embeddings: 1024
     num_attention_heads: 4
     num_hidden_layers: 2
     num_key_value_heads: 4
@@ -56,10 +56,10 @@ optimizer:
   clip_grad: 1.0
   learning_rate_scheduler:
     learning_rate: 0.0003
-    lr_decay_starting_step: null
-    lr_decay_steps: 13
+    lr_decay_starting_step: 500
+    lr_decay_steps: null
     lr_decay_style: cosine
-    lr_warmup_steps: 2
+    lr_warmup_steps: 200
     lr_warmup_style: linear
     min_decay_lr: 1.0e-05
   optimizer_factory:
@@ -88,6 +88,6 @@ tokens:
   limit_test_batches: 0
   limit_val_batches: 0
   micro_batch_size: 32
-  sequence_length: 256
-  train_steps: 15
+  sequence_length: 1024
+  train_steps: 1000
   val_check_interval: -1

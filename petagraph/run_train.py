@@ -115,6 +115,9 @@ def get_dataloader_from_data_stage(
         elif "contig" in sequence_files_path.name:
             load_type = "contig"
             url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
+        elif "csv" in sequence_files_path.suffix:
+            load_type = "contig"
+            url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
         else:
             raise ValueError("Data path must contain either 'unitig' or 'contig'")
         
@@ -122,7 +125,7 @@ def get_dataloader_from_data_stage(
         if sequence_files_path.suffix == ".csv":
             log_rank(f"Loading data from csv file at {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
             all_files_df = pd.read_csv(sequence_files_path)
-            all_files = [url_format.format(accession=accession) for accession in all_files_df["accession"].tolist()]
+            all_files = [url_format.format(accession=accession) for accession in all_files_df["acc"].tolist()]
         
         # Load data from text file
         else:
@@ -160,6 +163,13 @@ def get_dataloader_from_data_stage(
         # Set or read from config dataloader workers
         num_dl_workers = 0
 
+        # Set loggin directories
+        logging_directory = Path(trainer.config.checkpoints.checkpoints_path)
+        consumed_files_directory = logging_directory / "consumed_files"
+        with main_rank_first(trainer.parallel_context.world_pg):
+            log_rank(f"Creating: {consumed_files_directory}", logger=logger, level=logging.INFO, rank=0)
+            consumed_files_directory.mkdir(exist_ok=True, parents=True)
+
         # If we are using pipeline parallelism, then we use the same approach
         # as in dataloader.get_train_dataloader and create a dummy dataset on the 
         # ranks, which are not part of input or output pipeline parallel ranks.
@@ -173,6 +183,12 @@ def get_dataloader_from_data_stage(
             num_dl_workers = 0
 
         else:
+            global_rank = trainer.parallel_context.get_global_rank(
+                ep_rank=dist.get_rank(trainer.parallel_context.expert_pg),
+                pp_rank=dist.get_rank(trainer.parallel_context.pp_pg),
+                dp_rank=dist.get_rank(trainer.parallel_context.dp_pg),
+                tp_rank=dist.get_rank(trainer.parallel_context.tp_pg),
+            )
             train_dataset = PetaGraphStreamDataset(
                 logger=logger,
                 url_list=train_sequence_files,
@@ -182,7 +198,7 @@ def get_dataloader_from_data_stage(
                 create_attention_mask=True,
                 prefetch_sequences=data.prefetch_buffer_seq_size,
                 log_directory=trainer.config.checkpoints.checkpoints_path,
-                rank=dist.get_global_rank()
+                rank=global_rank
             )
 
 
