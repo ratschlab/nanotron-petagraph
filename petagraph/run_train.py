@@ -163,7 +163,6 @@ def get_dataloader_from_data_stage(
             num_dl_workers = 0
 
         else:
-            rank = dist.get_global_rank()
             train_dataset = PetaGraphStreamDataset(
                 logger=logger,
                 url_list=train_sequence_files,
@@ -172,8 +171,8 @@ def get_dataloader_from_data_stage(
                 maxlen=trainer.sequence_length + 1,
                 create_attention_mask=True,
                 prefetch_sequences=data.prefetch_buffer_seq_size,
-                log_directory=trainer.config.checkpoints.checkpoints_path
-                rank=rank
+                log_directory=trainer.config.checkpoints.checkpoints_path,
+                rank=dist.get_global_rank()
             )
 
 
