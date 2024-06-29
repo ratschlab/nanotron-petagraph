@@ -66,6 +66,11 @@ class EmptyInfiniteDataset:
         return self._length
 
 
+def load_sequence_txt_file(file_path: Path) -> set[str]:
+    with file_path.open() as f:
+        return set(f.read().splitlines())
+
+
 def get_dataloader_from_data_stage(
     trainer: DistributedTrainer,
     data: DataArgs,
@@ -109,34 +114,68 @@ def get_dataloader_from_data_stage(
         log_rank(f"Loading sequence files from {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
 
         # Load files with lines
-        if "unitig" in sequence_files_path.name:
-            load_type = "unitig"
-            url_format = "s3://logan-pub/u/{accession}/{accession}.unitigs.fa.zst"
-        elif "contig" in sequence_files_path.name:
-            load_type = "contig"
-            url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
-        elif "csv" in sequence_files_path.suffix:
-            load_type = "contig"
-            url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
-        else:
-            raise ValueError("Data path must contain either 'unitig' or 'contig'")
+        # if "unitig" in sequence_files_path.name:
+        #     load_type = "unitig"
+        #     url_format = "s3://logan-pub/u/{accession}/{accession}.unitigs.fa.zst"
+        # elif "contig" in sequence_files_path.name:
+        #     load_type = "contig"
+        #     url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
+        # elif "csv" in sequence_files_path.suffix:
+        #     load_type = "contig"
+        #     url_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
+        # else:
+        #     raise ValueError("Data path must contain either 'unitig' or 'contig'")
+
+        contig_format = "s3://logan-pub/c/{accession}/{accession}.contigs.fa.zst"
+        unitig_format = "s3://logan-pub/u/{accession}/{accession}.unitigs.fa.zst"
+        
+        assert data.all_sequences_resources_path is not None, "all_sequences_resources_path must be provided"
+        all_sequences_resources_path = Path(data.all_sequences_resources_path)
+        all_unitigs = load_sequence_txt_file(all_sequences_resources_path / "unitigs_names.txt")
+        all_contigs = load_sequence_txt_file(all_sequences_resources_path / "contigs_names.txt")
         
         # If .csv file, load data from csv file
+        num_unitigs = 0
+        num_contigs = 0
+        num_missed = 0
+        all_files = []
         if sequence_files_path.suffix == ".csv":
             log_rank(f"Loading data from csv file at {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
             all_files_df = pd.read_csv(sequence_files_path)
-            all_files = [url_format.format(accession=accession) for accession in all_files_df["acc"].tolist()]
+            all_accesions = [accession for accession in all_files_df["acc"].tolist()]
+            for accession in all_accesions:
+                if accession in all_contigs:
+                    url = contig_format.format(accession=accession)
+                    all_files.append(url)
+                    num_contigs += 1
+                # elif accession in all_unitigs:
+                #     url = unitig_format.format(accession=accession)
+                #     all_files.append(url)
+                #     num_unitigs += 1
+                else:
+                    num_missed += 1
+                    # log_rank(f"Accession {accession} not found in unitigs or contigs", logger=logger, level=logging.WARNING, rank=0)
         
         # Load data from text file
         else:
             log_rank(f"Loading data from text file at {sequence_files_path}", logger=logger, level=logging.INFO, rank=0)
-            all_files = []
             for line in sequence_files_path.open():
                 accession = line.strip().strip("\n")
-                url = url_format.format(accession=accession)
-                all_files.append(url)
+                if accession in all_contigs:
+                    url = contig_format.format(accession=accession)
+                    all_files.append(url)
+                    num_contigs += 1
+                # elif accession in all_unitigs:
+                #     url = unitig_format.format(accession=accession)
+                #     all_files.append(url)
+                #     num_unitigs += 1
+                else:
+                    num_missed += 1
+                    # log_rank(f"Accession {accession} not found in unitigs or contigs", logger=logger, level=logging.WARNING, rank=0)
 
-        log_rank(f"Found {len(all_files)} {load_type} files", logger=logger, level=logging.INFO, rank=0)
+        log_rank(f"Found {len(all_files)} files", logger=logger, level=logging.INFO, rank=0)
+        log_rank(f"Found {num_unitigs} unitigs and {num_contigs} contigs", logger=logger, level=logging.INFO, rank=0)
+        log_rank(f"Found {num_missed} missed accessions", logger=logger, level=logging.INFO, rank=0)
 
         # TODO: if resuming from a checkpoint, we need to skip the already consumed files
         if consumed_train_samples > 0:
@@ -161,7 +200,8 @@ def get_dataloader_from_data_stage(
                      logger=logger, level=logging.INFO, rank=r)
 
         # Set or read from config dataloader workers
-        num_dl_workers = 0
+        num_dl_workers = data.num_loading_workers
+        log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
 
         # Set loggin directories
         logging_directory = Path(trainer.config.checkpoints.checkpoints_path)

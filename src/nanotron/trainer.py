@@ -699,6 +699,7 @@ class DistributedTrainer:
         if not reloaded_from_checkpoint:
             log_rank("No checkpoint path provided.", logger=logger, level=logging.INFO)
             if isinstance(self.config.model.init_method, ExistingCheckpointInit):
+                log_rank(f"Initializing model from {self.config.model.init_method.path}", logger=logger, level=logging.INFO)
                 # Initialize model from an pretrained model checkpoint
                 self.param_shard_metadata = load_weights(
                     model=unwrapped_model,
@@ -706,6 +707,7 @@ class DistributedTrainer:
                     root_folder=self.config.model.init_method.path,
                 )
             elif isinstance(self.config.model.init_method, (RandomInit, SpectralMupInit)):
+                log_rank(f"Initializing model randomly", logger=logger, level=logging.INFO)
                 unwrapped_model.init_model_randomly(config=self.config)
 
                 # Synchronize parameters so that the model is consistent

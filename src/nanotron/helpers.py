@@ -358,6 +358,12 @@ def init_optimizer_and_grad_accumulator(
         )
 
     optimizer_builder = basic_optimizer_builder
+    log_rank(
+        f"[Optimizer Building] Using {optimizer_args.optimizer_factory.name} as optimizer",
+        logger=logger,
+        level=logging.INFO,
+        rank=0,
+    )
 
     # Gradient accumulator builder
     grad_accumulator: Optional[GradientAccumulator] = None
@@ -436,6 +442,13 @@ def init_optimizer_and_grad_accumulator(
                 reduce_scatter=optimizer.inherit_from(ZeroDistributedOptimizer), reduce_op=dist.ReduceOp.AVG
             ),
         )
+
+    log_rank(
+        f"[Optimizer Building] Optimizer and Gradient Accumulator are built",
+        logger=logger,
+        level=logging.INFO,
+        rank=0,
+    )
 
     return optimizer, grad_accumulator
 

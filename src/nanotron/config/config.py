@@ -116,6 +116,7 @@ class DataArgs:
     num_loading_workers: Optional[int] = 1
     sequence_files_path: Optional[str] = None
     prefetch_buffer_seq_size: Optional[int] = 1
+    all_sequences_resources_path: Optional[str] = None
 
     def __post_init__(self):
         if self.seed is None:

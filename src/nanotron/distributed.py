@@ -13,7 +13,7 @@ from nanotron.utils import find_free_port
 
 torch_version_above_1_13 = version.parse(torch.__version__) >= version.parse("1.13.0")
 Work = dist.Work if torch_version_above_1_13 else dist._Work
-default_pg_timeout = datetime.timedelta(minutes=10)
+default_pg_timeout = datetime.timedelta(minutes=20)
 
 
 def new_group(  # pylint: disable=function-redefined
@@ -270,8 +270,16 @@ def initialize_torch_distributed():
     else:
         port = int(port)
 
-    init_method = f"env://localhost:{port}"
+    master_addr = os.getenv("MASTER_ADDR")
+    if master_addr is None:
+        master_addr = "localhost"
+
+    # init_method = f"env://localhost:{port}"
+    init_method = f"env://{master_addr}:{port}"
+    print(f"Initializing torch distributed with init_method: {init_method}")
+
     dist.init_process_group(
-        init_method=init_method, backend=backend, world_size=world_size, rank=rank, timeout=dist.default_pg_timeout
+        init_method=init_method, backend=backend, world_size=world_size, rank=rank, timeout=default_pg_timeout
     )
+
     return True
