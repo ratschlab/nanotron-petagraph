@@ -22,6 +22,7 @@ from Bio import SeqIO
 from io import StringIO
 
 from nanotron.logging import log_rank
+from collections import deque
 
 
 # =============================================================================
@@ -52,6 +53,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         prefetch_fasta_parsing: int = 10,
         log_directory: Path = None,
         rank: int = 0,
+        packed: bool = False,
     ):
 
         self.samples_per_epoch = samples_per_epoch
@@ -62,14 +64,16 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self.logger = logger
         self.logging_func = partial(log_rank, logger=logger, level=logging.INFO, rank=0)
         self.logging_func("=====================================")
-        self.logging_func(f"Creating PetaGraphStreamDataset with maxlen {maxlen}")
-        self.logging_func(f"Samples per epoch: {samples_per_epoch}")
-        self.logging_func(f"Num. URLs: {len(url_list)}")
-        self.logging_func(f"From Cloud: {from_cloud}")
+        self.logging_func(f"[PetaGraphStreamDataset] Creating PetaGraphStreamDataset with maxlen {maxlen}")
+        self.logging_func(f"[PetaGraphStreamDataset] Samples per epoch: {samples_per_epoch}")
+        self.logging_func(f"[PetaGraphStreamDataset] Num. URLs: {len(url_list)}")
+        self.logging_func(f"[PetaGraphStreamDataset] From Cloud: {from_cloud}")
 
         self.VOCAB = vocabulary
         self._pad_token_id = self.VOCAB["PAD"]
         self._eos_token_id = self.VOCAB["EOS"]
+        self._bos_token_id = self.VOCAB["BOS"]
+        self._unk_token_id = self.VOCAB["UNK"]
 
         # TODO: Take list of already consumed lists and remove them from the
         # url list, to continue training from the last checkpoint properly
@@ -132,8 +136,13 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self.rank = rank
         self.log_directory = log_directory
         self.consumed_files = set()
+        self.consumed_seq_len_queue = deque(maxlen=1000)
         if self.log_directory is not None:
-            self.logging_func(f"Logging to {self.log_directory} on rank {self.rank}")
+            self.logging_func(f"[PetaGraphStreamDataset] Logging to {self.log_directory} on rank {self.rank}")
+
+        self.packed = packed
+        if self.packed:
+            self.logging_func(f"[PetaGraphStreamDataset] Packing sequences to maximize throughput")
 
         self.logging_func("=====================================")
 
@@ -169,35 +178,35 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
         return sequences
 
-    def crop_maxlen(self, input_sequence: str):
+    def crop_maxlen(self, input_sequence: str, maxlen: int = None):
         # path, input_sequence = input_data
-        maxlen_without_special_tokens = self.maxlen - 2
-        if len(input_sequence) <= maxlen_without_special_tokens:
+        if len(input_sequence) <= maxlen:
             return input_sequence
         else:
             # Crop the sequence to the maximum length
             # Get random starting point
-            start = random.randint(0, len(input_sequence) - maxlen_without_special_tokens)
-            return input_sequence[start:start + maxlen_without_special_tokens]
+            start = random.randint(0, len(input_sequence) - maxlen)
+            return input_sequence[start:start + maxlen]
 
-    def tokenize_and_pad(self, input_sequence: str):
+    def tokenize_and_pad(self, input_sequence: str, apply_pad: bool = True):
         # path, input_sequence = input_data
         maxlen = self.maxlen
 
         # Tokenize the sequence
-        tokenized_sequence = [0] # start with BOS token
-        tokenized_sequence.extend([self.VOCAB.get(base, 3) for base in input_sequence]) # 3 is the UNK token
-        tokenized_sequence.append(1) # end with EOS token
+        tokenized_sequence = [self._bos_token_id] # start with BOS token
+        tokenized_sequence.extend([self.VOCAB.get(base, self._unk_token_id) for base in input_sequence]) # 3 is the UNK token
+        if len(tokenized_sequence) < maxlen:
+            tokenized_sequence.append(self._eos_token_id) # end with EOS token
         tokenized_sequence = np.array(tokenized_sequence, dtype=np.int32)
 
         # Pad the sequence
 
-        if len(tokenized_sequence) < maxlen:
+        if apply_pad and len(tokenized_sequence) < maxlen:
             # 2 is the PAD token
             tokenized_sequence = np.pad(tokenized_sequence,
                                         (0, maxlen - len(tokenized_sequence)),
                                         mode="constant",
-                                        constant_values=2)
+                                        constant_values=self._pad_token_id)
 
         # if len(tokenized_sequence) < maxlen:
         #     tokenized_sequence.extend([2] * (maxlen - len(tokenized_sequence))) # 2 is the PAD token
@@ -208,6 +217,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
     #     return self.samples_per_epoch
 
     def generate(self):
+        current_tokens = None
         while True:
             # if self.debug:
             #     print(f"[{self.__class__.__name__}] Getting item {idx}")
@@ -220,12 +230,49 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                         with open(out_path, "a") as f:
                             f.write(f"{source_path}\n")
                 self.consumed_files.add(source_path)
+
             except StopIteration:  
                 self.logger.warning(f"Reached end of dataset, restarting from the beginning")
-            text_cropped = self.crop_maxlen(text_raw)
-            text_tokenized = self.tokenize_and_pad(text_cropped)
 
-            yield {"input_ids": text_tokenized}
+            if not self.packed:
+
+                # Crop the sequence to the maximum length
+                maxlen_without_special_tokens = self.maxlen - 1 # for BOS token
+                text_cropped = self.crop_maxlen(text_raw, maxlen=maxlen_without_special_tokens)
+
+                # Log the consumed sequence length
+                text_length = len(text_cropped)
+                self.consumed_seq_len_queue.append(text_length)
+
+                # Tokenize and pad the sequence
+                text_tokenized = self.tokenize_and_pad(text_cropped)
+
+                yield {"input_ids": text_tokenized}
+
+            else:
+                
+                # Crop the sequence to the maximum length
+                # Leave room for at least BOS
+                if len(text_raw) >= self.maxlen:
+                    text_cropped = text_raw[:self.maxlen]
+                else:
+                    text_cropped = text_raw
+
+                # Log the consumed sequence length
+                text_length = len(text_cropped)
+                self.consumed_seq_len_queue.append(text_length)
+
+                new_tokens = self.tokenize_and_pad(text_cropped, apply_pad=False)
+                if current_tokens is None:
+                    current_tokens = new_tokens
+                else:
+                    current_tokens = np.concatenate([current_tokens, new_tokens])
+
+                if len(current_tokens) >= self.maxlen:
+                    current_tokens = current_tokens[:self.maxlen]                  
+                    yield {"input_ids": current_tokens}
+                    current_tokens = None
+
     
     # def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
     def __iter__(self) -> dict[str, np.ndarray]:

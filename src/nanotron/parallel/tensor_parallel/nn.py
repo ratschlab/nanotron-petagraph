@@ -247,6 +247,13 @@ class TensorParallelEmbedding(nn.Embedding):
         self.min_id = self.rank * block_size
         self.max_id = (self.rank + 1) * block_size
 
+        if padding_idx is not None:
+            # If padding_idx is not None, we need to make sure that the padding_idx is in the range of the rank
+            if self.min_id <= padding_idx < self.max_id:
+                padding_idx = padding_idx - self.min_id
+            else:
+                padding_idx = None
+
         super().__init__(
             block_size,
             embedding_dim,
@@ -270,6 +277,9 @@ class TensorParallelEmbedding(nn.Embedding):
         split_config = SplitConfig(split_dim=0, contiguous_chunks=contiguous_chunks)
 
         mark_all_parameters_in_module_as_sharded(self, pg=self.pg, split_config=split_config)
+
+    def _fill_padding_idx_with_zero(self) -> None:
+        super()._fill_padding_idx_with_zero()
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         if self.pg.size() > 1:

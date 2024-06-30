@@ -340,6 +340,8 @@ class DataCollatorForCLM:
     parallel_context: ParallelContext
     padding_index: int
     unknown_index: int
+    bos_index: int
+    eos_index: int
 
     def __call__(self, examples: List[Dict[str, List[np.ndarray]]]) -> Dict[str, Union[torch.Tensor, TensorPointer]]:
         # Process the case when current rank doesn't require data. We return `TensorPointer` that points to ranks having the data.
@@ -381,7 +383,7 @@ class DataCollatorForCLM:
 
             # Set input_mask 0 for padding tokens
             padding_mask = result["input_ids"] == self.padding_index
-            result["input_mask"][padding_mask] = 0
+            result["input_mask"][padding_mask] = 0 # False
 
         # Process labels: shift them to the left
         if current_pp_rank == self.output_pp_rank:
@@ -391,8 +393,10 @@ class DataCollatorForCLM:
             # Set label_mask 0 for padding tokens and unknown tokens
             padding_mask = result["label_ids"] == self.padding_index
             unknown_mask = result["label_ids"] == self.unknown_index
-            label_mask = padding_mask | unknown_mask
-            result["label_mask"][label_mask] = 0
+            bos_mask = result["label_ids"] == self.bos_index
+            eos_mask = result["label_ids"] == self.eos_index
+            full_label_mask = padding_mask | unknown_mask | bos_mask | eos_mask
+            result["label_mask"][full_label_mask] = 0 # False
 
         if isinstance(result["input_ids"], torch.Tensor) and result["input_ids"].shape[-1] != self.sequence_length:
             raise ValueError(

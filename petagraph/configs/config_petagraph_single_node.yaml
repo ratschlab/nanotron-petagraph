@@ -7,7 +7,7 @@ checkpoints:
 data_stages:
 - data:
     dataset: null # Custom dataloader will be used
-    num_loading_workers: 8
+    num_loading_workers: 0
     seed: 42
     sequence_files_path: "/users/burgerm/petagraph/resources/training_sets/train_undersample_20_genomic_wgs_fungi_2022.csv"
     all_sequences_resources_path: "/users/burgerm/petagraph/resources"
@@ -31,14 +31,15 @@ model:
   ddp_bucket_cap_mb: 50
   dtype: bfloat16 # bfloat16
   init_method:
-    std: 0.02 # 0.025
+    std: 0.025
+    truncated_normal_bound: 2.0
   make_vocab_size_divisible_by: 1
   model_config:
     bos_token_id: 0
     eos_token_id: 1
     hidden_act: silu
     hidden_size: 1024
-    initializer_range: 0.02
+    initializer_range: 0.025
     intermediate_size: 4096
     is_llama_config: true
     max_position_embeddings: 2048
@@ -49,12 +50,12 @@ model:
     pretraining_tp: 1
     rms_norm_eps: 1.0e-05
     rope_scaling: null
-    tie_word_embeddings: false
+    tie_word_embeddings: true
     use_cache: true
     vocab_size: 8
 optimizer:
   accumulate_grad_in_fp32: true
-  clip_grad: 0.9 # 1.0
+  clip_grad: 1.0
   learning_rate_scheduler:
     learning_rate: 0.0001
     lr_decay_starting_step: 100_000

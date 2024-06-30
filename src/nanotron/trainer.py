@@ -19,6 +19,7 @@ from typing import (
     cast,
 )
 
+import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
@@ -435,7 +436,7 @@ class DistributedTrainer:
                 ].consumed_train_samples += self.global_batch_size
 
                 if (self.iteration_step - 1) % self.config.logging.iteration_step_info_interval == 0:
-                    self.train_step_logs(outputs=outputs, loss_avg=loss_avg)
+                    self.train_step_logs(outputs=outputs, loss_avg=loss_avg, dataloaders=dataloader_or_dls)
 
                 # Checkpoint
                 if self.iteration_step % self.config.checkpoints.checkpoint_interval == 0:
@@ -505,6 +506,7 @@ class DistributedTrainer:
                 named_parameters=named_parameters,
                 grad_accumulator=self.grad_accumulator,
                 max_norm=self.config.optimizer.clip_grad,
+                norm_type=2.0,
             )
 
         before_optim_step_sanity_checks(
@@ -551,6 +553,7 @@ class DistributedTrainer:
         self,
         outputs: Iterable[Dict[str, Union[torch.Tensor, TensorPointer]]],
         loss_avg: Optional[torch.Tensor],
+        dataloaders = None,
     ) -> None:
         # TODO @nouamanetazi: Megatron-LM seems to be using a barrier to report their interval time. Check if this is necessary. https://github.com/NouamaneTazi/Megatron-LM/blob/e241a96c3085b18e36c6cee1d68a8155de77b5a6/megatron/training.py#L607
         dist.barrier()
@@ -588,6 +591,18 @@ class DistributedTrainer:
                 LogItem("model_tflops_per_gpu", model_tflops, "human_format"),  # , ".2f"),
                 LogItem("hardware_tflops_per_gpu", hardware_tflops, "human_format"),  # , ".2f"),
             ]
+
+            if dataloaders is not None:
+                if isinstance(dataloaders, tuple):
+                    current_dataset = dataloaders[0].dataset
+                elif isinstance(dataloaders, dict):
+                    current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
+                else:
+                    current_dataset = dataloaders.dataset
+                if hasattr(current_dataset, "consumed_seq_len_queue"):
+                    consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
+                    log_entries.append(LogItem("consumed_seq_lens_median", np.median(consumed_seq_lens), "human_format"))
+                    log_entries.append(LogItem("consumed_seq_lens_max", np.max(consumed_seq_lens), "human_format"))
 
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))

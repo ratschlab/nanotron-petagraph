@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Union
 @dataclass
 class RandomInit:
     std: float
+    truncated_normal_bound: Optional[float] = None
 
 
 @dataclass

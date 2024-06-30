@@ -5,13 +5,19 @@ from typing import Dict
 
 from nanotron.config import ModelArgs
 from nanotron.nn.layer_norm import TritonRMSNorm
+from nanotron import logging
+from nanotron.logging import LogItem, log_rank
 from nanotron.parallel.tensor_parallel.nn import (
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelRowLinear,
+    
 )
 from torch import nn
 from torch.nn import init
+
+
+logger = logging.get_logger(__name__)
 
 
 class ParametrizationMethod(Enum):
@@ -43,11 +49,26 @@ class StandardParametrizator(Parametrizator):
         self.std = config.init_method.std
         self.num_layers = config.model_config.num_hidden_layers
 
+        if hasattr(config.init_method, "truncated_normal_bound"):
+            self.truncated_normal = True
+            self.trunc_bound = config.init_method.truncated_normal_bound
+            log_rank(
+                f"[StandardParametrizator] Using truncated normal with bound {self.trunc_bound}",
+                logger=logger,
+                level=logging.INFO,
+                rank=0,
+            )
+        else:
+            self.truncated_normal = False
+
     def _parametrize_column_linear(self, param_name: str, module: nn.Module):
         assert param_name in ["weight", "bias"]
 
         if "weight" == param_name:
-            init.normal_(module.weight, mean=0.0, std=self.std)
+            if self.truncated_normal:
+                init.trunc_normal_(module.weight, mean=0.0, std=self.std, a=-self.trunc_bound, b=self.trunc_bound)
+            else:
+                init.normal_(module.weight, mean=0.0, std=self.std)
         elif "bias" == param_name:
             module.bias.zero_()
 
@@ -56,7 +77,10 @@ class StandardParametrizator(Parametrizator):
 
         if "weight" == param_name:
             std = self.std / math.sqrt(2 * self.num_layers)
-            init.normal_(module.weight, mean=0.0, std=std)
+            if self.truncated_normal:
+                init.trunc_normal_(module.weight, mean=0.0, std=std, a=-self.trunc_bound, b=self.trunc_bound)
+            else:
+                init.normal_(module.weight, mean=0.0, std=std)
         elif "bias" == param_name:
             module.bias.zero_()
 
@@ -71,9 +95,21 @@ class StandardParametrizator(Parametrizator):
 
     def _parametrize_embedding(self, param_name: str, module: nn.Module):
         assert param_name in ["weight"]
-
         if "weight" == param_name:
-            init.normal_(module.weight, mean=0.0, std=self.std)
+            if self.truncated_normal:
+                init.trunc_normal_(module.weight, mean=0.0, std=self.std, a=-self.trunc_bound, b=self.trunc_bound)
+            else:
+                init.normal_(module.weight, mean=0.0, std=self.std)
+
+        try:
+            module._fill_padding_idx_with_zero()
+        except AttributeError:
+            log_rank(
+                f"[StandardParametrizator] Module {module} has no _fill_padding_idx_with_zero method",
+                logger=logger,
+                level=logging.WARNING,
+                rank=0,
+            )
 
 
 class SpectralMupParametrizator(Parametrizator):

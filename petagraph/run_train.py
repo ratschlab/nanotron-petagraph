@@ -197,7 +197,7 @@ def get_dataloader_from_data_stage(
         train_sequence_files = all_files[start_idx:end_idx]
         for r in range(dp_ranks_size):
             log_rank(f"Rank {r} has {len(train_sequence_files)} train files, eg.: {train_sequence_files[:2]}",
-                     logger=logger, level=logging.INFO, rank=r)
+                     logger=logger, level=logging.INFO, rank=r, group=trainer.parallel_context.dp_pg)
 
         # Set or read from config dataloader workers
         num_dl_workers = data.num_loading_workers
@@ -217,18 +217,18 @@ def get_dataloader_from_data_stage(
         if pp_ranks_size > 1 and dist.get_rank(trainer.parallel_context.pp_pg) not in [
             input_pp_rank, output_pp_rank,
         ]:
+            pp_ranks_size = trainer.parallel_context.pp_pg.size()
+            for r in range(pp_ranks_size):
+                log_rank(f"Rank {r} is not part of input or output pipeline parallel ranks using dummy dataset",
+                         logger=logger, level=logging.WARNING, rank=r, group=trainer.parallel_context.pp_pg)
+                
             dataset_length = len(train_sequence_files) * 100_000
             train_dataset = EmptyInfiniteDataset(length=dataset_length)
             # No need to spawn a lot of workers, we can just use main
             num_dl_workers = 0
 
         else:
-            global_rank = trainer.parallel_context.get_global_rank(
-                ep_rank=dist.get_rank(trainer.parallel_context.expert_pg),
-                pp_rank=dist.get_rank(trainer.parallel_context.pp_pg),
-                dp_rank=dist.get_rank(trainer.parallel_context.dp_pg),
-                tp_rank=dist.get_rank(trainer.parallel_context.tp_pg),
-            )
+            global_rank = trainer.parallel_context.world_pg.rank()
             train_dataset = PetaGraphStreamDataset(
                 logger=logger,
                 url_list=train_sequence_files,
@@ -238,7 +238,8 @@ def get_dataloader_from_data_stage(
                 create_attention_mask=True,
                 prefetch_sequences=data.prefetch_buffer_seq_size,
                 log_directory=trainer.config.checkpoints.checkpoints_path,
-                rank=global_rank
+                rank=global_rank,
+                packed=True
             )
 
 
@@ -249,6 +250,8 @@ def get_dataloader_from_data_stage(
             parallel_context=trainer.parallel_context,
             padding_index=pad_config_id,
             unknown_index=VOCABULARY["UNK"],
+            bos_index=bos_config_id,
+            eos_index=eos_config_id,
         )
 
         log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
