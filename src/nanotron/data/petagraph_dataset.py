@@ -266,6 +266,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                 if current_tokens is None:
                     current_tokens = new_tokens
                 else:
+                    # Check the last token of the current sequence
+                    # is an EOS token
+                    assert current_tokens[-1] == self._eos_token_id
                     current_tokens = np.concatenate([current_tokens, new_tokens])
 
                 if len(current_tokens) >= self.maxlen:
