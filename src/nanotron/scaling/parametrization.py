@@ -49,7 +49,7 @@ class StandardParametrizator(Parametrizator):
         self.std = config.init_method.std
         self.num_layers = config.model_config.num_hidden_layers
 
-        if hasattr(config.init_method, "truncated_normal_bound"):
+        if hasattr(config.init_method, "truncated_normal_bound") and config.init_method.truncated_normal_bound is not None:
             self.truncated_normal = True
             self.trunc_bound = config.init_method.truncated_normal_bound
             log_rank(
@@ -60,6 +60,7 @@ class StandardParametrizator(Parametrizator):
             )
         else:
             self.truncated_normal = False
+            self.trunc_bound = None
 
     def _parametrize_column_linear(self, param_name: str, module: nn.Module):
         assert param_name in ["weight", "bias"]

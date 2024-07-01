@@ -13,9 +13,11 @@ import logging
 import torch
 import random
 from tqdm import tqdm
-import zstd
 import numpy as np
 from typing import Dict, Optional, Tuple
+
+# import zstd
+import zstandard
 
 from pathlib import Path
 from Bio import SeqIO
@@ -84,13 +86,13 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
             # are required. For detail, please check our tutorial in:
             # https://pytorch.org/data/main/tutorial.html#working-with-dataloader
             dp_s3_urls = IterableWrapper(url_list) # .list_files_by_s3()
-            sharded_s3_urls = dp_s3_urls.shuffle().sharding_filter()
+            sharded_s3_urls = dp_s3_urls.shuffle().sharding_filter().cycle()
 
             # opened_files = S3FileLoader(sharded_s3_urls)
             opened_files = FSSpecFileOpener(sharded_s3_urls, mode="rb")
 
         else:
-            files_names = IterableWrapper(url_list).shuffle().sharding_filter()
+            files_names = IterableWrapper(url_list).shuffle().sharding_filter().cycle()
             opened_files = FileOpener(files_names, mode="rb")
 
         decoded_files = StreamReader(opened_files)
@@ -151,7 +153,15 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         # if self.debug:
         #     self.logging_func(f"[{self.__class__.__name__}] Decompressing {path}")
 
-        decompressed_data = zstd.decompress(data)
+        # decompressed_data = zstd.decompress(data)
+
+        try:
+            dctx = zstandard.ZstdDecompressor()
+            decompressed_data = dctx.decompress(data)
+        except Exception as e:
+            self.logger.warning(f"[PetaGraphStreamDataset] Error decompressing {path}: {e}")
+            return path, None
+
         # if self.debug:
         #     num_mb_compressed = len(data) / 1024 / 1024
         #     num_mb_decompressed = len(decompressed_data) / 1024 / 1024
@@ -161,6 +171,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
     def fasta_parsing_func(self, input_data):
         path, data = input_data
+
+        if data is None:
+            return [[]]
 
         # if self.debug:
         #     self.logging_func(f"[{self.__class__.__name__}] Parsing {path}")
@@ -224,6 +237,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
             try:
                 source_path, text_raw = next(self.iterable_dataset)
+                if text_raw is None or len(text_raw) == 0:
+                    continue
+
                 if self.log_directory is not None:
                     if source_path not in self.consumed_files:
                         out_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
@@ -232,7 +248,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                 self.consumed_files.add(source_path)
 
             except StopIteration:  
-                self.logger.warning(f"Reached end of dataset, restarting from the beginning")
+                self.logger.warning(f"Reached end of dataset")
 
             if not self.packed:
 

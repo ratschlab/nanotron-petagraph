@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=petagraph      # create a short name for your job
-#SBATCH --nodes=4                # total number of nodes
+#SBATCH --nodes=8                # total number of nodes
 #SBATCH --ntasks-per-node=1      # total number of tasks per node
 #SBATCH --gpus-per-task=4
 #SBATCH --time=12:00:00

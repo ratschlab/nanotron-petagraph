@@ -599,10 +599,15 @@ class DistributedTrainer:
                     current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
                 else:
                     current_dataset = dataloaders.dataset
+
                 if hasattr(current_dataset, "consumed_seq_len_queue"):
                     consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
                     log_entries.append(LogItem("consumed_seq_lens_median", np.median(consumed_seq_lens), "human_format"))
                     log_entries.append(LogItem("consumed_seq_lens_max", np.max(consumed_seq_lens), "human_format"))
+
+                if hasattr(current_dataset, "consumed_files"):
+                    num_consumed_files = len(current_dataset.consumed_files)
+                    log_entries.append(LogItem("num_consumed_files", num_consumed_files, "human_format"))
 
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))
