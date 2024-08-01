@@ -609,6 +609,9 @@ class DistributedTrainer:
                     num_consumed_files = len(current_dataset.consumed_files)
                     log_entries.append(LogItem("num_consumed_files", num_consumed_files, "human_format"))
 
+                if hasattr(current_dataset, "current_epoch"):
+                    log_entries.append(LogItem("current_epoch", current_dataset.current_epoch, "human_format"))
+
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))
 

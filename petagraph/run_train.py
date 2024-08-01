@@ -203,7 +203,7 @@ def get_dataloader_from_data_stage(
         num_dl_workers = data.num_loading_workers
         log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
 
-        # Set loggin directories
+        # Set logging directories
         logging_directory = Path(trainer.config.checkpoints.checkpoints_path)
         consumed_files_directory = logging_directory / "consumed_files"
         with main_rank_first(trainer.parallel_context.world_pg):
