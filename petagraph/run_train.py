@@ -177,10 +177,6 @@ def get_dataloader_from_data_stage(
         log_rank(f"Found {num_unitigs} unitigs and {num_contigs} contigs", logger=logger, level=logging.INFO, rank=0)
         log_rank(f"Found {num_missed} missed accessions", logger=logger, level=logging.INFO, rank=0)
 
-        # TODO: if resuming from a checkpoint, we need to skip the already consumed files
-        if consumed_train_samples > 0:
-            raise NotImplementedError("Resuming from a checkpoint is not yet supported")
-
         # Compute size and rank of dataloader workers
         dp_ranks_size = trainer.parallel_context.dp_pg.size()
         dp_rank = trainer.parallel_context.dp_pg.rank()
