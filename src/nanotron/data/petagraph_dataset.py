@@ -224,7 +224,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
     def fasta_parsing_func(self, input_data):
         path, data = input_data
-
         if data is None:
             return [[]]
 
@@ -268,7 +267,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
     def generate(self):
         current_tokens = None
         while True:
-
             try:
                 source_path, text_raw = next(self.iterable_dataset)
                 if text_raw is None or len(text_raw) == 0:
@@ -284,7 +282,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                     self.logging_func(f"Epoch {self.current_epoch} completed")
                     self.consumed_files = set()
 
-            except StopIteration:  
+            except StopIteration:
                 self.logger.warning(f"Reached end of dataset")
 
             if not self.packed:

@@ -197,7 +197,7 @@ def get_dataloader_from_data_stage(
 
         # Set or read from config dataloader workers
         num_dl_workers = data.num_loading_workers
-        assert num_dl_workers == 1, "num_dl_workers must be 1 for the current implementation for robust data loading under streaming from AWS"
+        assert num_dl_workers == 0, "num_dl_workers must be 0 for the current implementation for robust data loading under streaming from AWS"
         log_rank(f"Using {num_dl_workers} dataloader workers", logger=logger, level=logging.INFO, rank=0)
 
         # Set logging directories

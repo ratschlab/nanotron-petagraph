@@ -454,10 +454,11 @@ class DistributedTrainer:
         if self.iteration_step < 5:
             log_memory(logger=logger)
 
+        collected_batch = (next(dataloader) for _ in range(self.n_micro_batches_per_batch))
         outputs = self.pipeline_engine.train_batch_iter(
             model=self.model,
             pg=self.parallel_context.pp_pg,
-            batch=(next(dataloader) for _ in range(self.n_micro_batches_per_batch)),
+            batch=collected_batch,
             nb_microbatches=self.n_micro_batches_per_batch,
             grad_accumulator=self.grad_accumulator,
         )
@@ -610,8 +611,8 @@ class DistributedTrainer:
                 group=self.parallel_context.dp_pg
             )
             num_consumed_files_ranks = num_consumed_files_t_all.cpu().numpy()
-            log_rank(f"num_consumed_files_ranks: {num_consumed_files_ranks}", logger=logger, level=logging.INFO, rank=0)
             num_consumed_files_all = num_consumed_files_ranks.sum()
+            self.metadata.consumed_num_logan_files = int(num_consumed_files_all)
 
             current_epoch_t = torch.tensor(current_epoch, device="cuda", dtype=torch.int64)
             current_epoch_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
@@ -621,7 +622,6 @@ class DistributedTrainer:
                 group=self.parallel_context.dp_pg
             )
             current_epoch_ranks = current_epoch_t_all.cpu().numpy()
-            log_rank(f"current_epoch_ranks: {current_epoch_ranks}", logger=logger, level=logging.INFO, rank=0)
             current_epoch_all = current_epoch_ranks.mean()
 
         else:

@@ -41,6 +41,10 @@ class TrainingMetadata:
     consumed_train_samples: int
     last_train_step: int
 
+    # Petagraph specific metadata
+    consumed_num_logan_files: int = 0
+    consumed_num_sequences: int = 0
+
     # TODO(xrsrke): make this not optional, once we entirely remove
     # the old checkpoint version
     last_stage_idx: Optional[int] = None
