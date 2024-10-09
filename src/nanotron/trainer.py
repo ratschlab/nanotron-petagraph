@@ -584,10 +584,8 @@ class DistributedTrainer:
 
             if current_dataset is not None and hasattr(current_dataset, "consumed_seq_len_queue"):
                 consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
-                median_seq_len = np.median(consumed_seq_lens)
                 mean_seq_len = np.mean(consumed_seq_lens)
             else:
-                median_seq_len = 0.0
                 mean_seq_len = 0.0
 
             if current_dataset is not None and  hasattr(current_dataset, "consumed_files"):
@@ -640,12 +638,24 @@ class DistributedTrainer:
             num_consumed_seq_ranks = num_consumed_seq_t_all.cpu().numpy()
             num_consumed_seq_all = num_consumed_seq_ranks.sum()
             self.metadata.consumed_num_sequences += int(num_consumed_seq_all)
+            num_consumed_seq_log = self.metadata.consumed_num_sequences
+
+            mean_consumed_seq_len_t = torch.tensor(mean_seq_len, device="cuda", dtype=torch.float32)
+            mean_consumed_seq_len_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.float32)
+            dist.all_gather_into_tensor(
+                output_tensor=mean_consumed_seq_len_t_all,
+                input_tensor=mean_consumed_seq_len_t,
+                group=self.parallel_context.dp_pg
+            )
+            mean_consumed_seq_len_ranks = mean_consumed_seq_len_t_all.cpu().numpy()
+            mean_consumed_seq_len_all = mean_consumed_seq_len_ranks.mean()
 
 
         else:
             num_consumed_files_all = None
             current_epoch_all = None
-            num_consumed_seq_all = None
+            num_consumed_seq_log = None
+            mean_consumed_seq_len_all = None
 
         # Logging on logger ranks
         if dist.get_rank(self.parallel_context.world_pg) in self.logger_ranks:
@@ -678,8 +688,11 @@ class DistributedTrainer:
             if current_epoch_all is not None:
                 log_entries.append(LogItem("rank_avg_epoch", current_epoch_all, "human_format"))
 
-            if num_consumed_seq_all is not None:
-                log_entries.append(LogItem("num_consumed_seq_all", num_consumed_seq_all, "human_format"))
+            if num_consumed_seq_log is not None:
+                log_entries.append(LogItem("num_consumed_seq_all", num_consumed_seq_log, "human_format"))
+
+            if mean_consumed_seq_len_all is not None:
+                log_entries.append(LogItem("approx_mean_consumed_seq_len", mean_consumed_seq_len_all, "human_format"))
 
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))

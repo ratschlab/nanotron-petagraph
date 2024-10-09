@@ -181,7 +181,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         for _ in range(warmup_sample_size):
             _ = next(self.iterable_dataset)
 
-        self.consumed_seq_len_queue = deque(maxlen=1000)
+        self.consumed_seq_len_queue = deque(maxlen=5000)
         if self.log_directory is not None:
             self.logging_func(f"[PetaGraphStreamDataset] Logging to {self.log_directory} on rank {self.rank}")
 
