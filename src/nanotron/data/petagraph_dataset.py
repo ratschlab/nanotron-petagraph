@@ -15,6 +15,7 @@ import random
 from tqdm import tqdm
 import numpy as np
 from typing import Dict, Optional, Tuple
+import json
 
 # import zstd
 import zstandard
@@ -77,6 +78,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self._bos_token_id = self.VOCAB["BOS"]
         self._unk_token_id = self.VOCAB["UNK"]
 
+
         self.num_files = len(url_list)
         self.current_epoch = 0
 
@@ -84,6 +86,13 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self.log_directory = log_directory
         self.num_consumed_sequences = 0
         self.consumed_files_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
+
+
+        # Save the vocabulary as json on head node
+        if self.rank == 0:
+            self.vocab_path = log_directory / "vocabulary.json"
+            with open(self.vocab_path, "w") as f:
+                json.dump(self.VOCAB, f)
 
         # Take list of already consumed lists and remove them from the
         # url list, to continue training from the last checkpoint properly

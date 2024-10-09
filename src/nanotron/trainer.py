@@ -571,91 +571,83 @@ class DistributedTrainer:
 
         # Gather information from the dataloaders and log statistics
         # Don't do this too often as it contains an allgather
-        if self.iteration_step < 5 or (self.iteration_step - 1) % self.config.checkpoints.checkpoint_interval == 0:
-            if dataloaders is not None:
-                if isinstance(dataloaders, tuple):
-                    current_dataset = dataloaders[0].dataset
-                elif isinstance(dataloaders, dict):
-                    current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
-                else:
-                    current_dataset = dataloaders.dataset
+        if dataloaders is not None:
+            if isinstance(dataloaders, tuple):
+                current_dataset = dataloaders[0].dataset
+            elif isinstance(dataloaders, dict):
+                current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
             else:
-                current_dataset = None
-
-            if current_dataset is not None and hasattr(current_dataset, "consumed_seq_len_queue"):
-                consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
-                mean_seq_len = np.mean(consumed_seq_lens)
-            else:
-                mean_seq_len = 0.0
-
-            if current_dataset is not None and  hasattr(current_dataset, "consumed_files"):
-                num_consumed_files = len(current_dataset.consumed_files)
-            else:
-                num_consumed_files = -1
-
-            if current_dataset is not None and  hasattr(current_dataset, "current_epoch"):
-                current_epoch = current_dataset.current_epoch
-            else:
-                current_epoch = -1
-
-            if current_dataset is not None and  hasattr(current_dataset, "num_consumed_sequences"):
-                num_consumed_sequences = current_dataset.num_consumed_sequences
-                current_dataset.num_consumed_sequences = 0
-            else:
-                num_consumed_sequences = 0
-
-            # Gather the values across all ranks
-            world_size_dp_pg = self.parallel_context.dp_pg.size()
-
-            num_consumed_files_t = torch.tensor(num_consumed_files, device="cuda", dtype=torch.int64)
-            num_consumed_files_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-            dist.all_gather_into_tensor(
-                output_tensor=num_consumed_files_t_all,
-                input_tensor=num_consumed_files_t,
-                group=self.parallel_context.dp_pg
-            )
-            num_consumed_files_ranks = num_consumed_files_t_all.cpu().numpy()
-            num_consumed_files_all = num_consumed_files_ranks.sum()
-            self.metadata.consumed_num_logan_files = int(num_consumed_files_all)
-
-            current_epoch_t = torch.tensor(current_epoch, device="cuda", dtype=torch.int64)
-            current_epoch_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-            dist.all_gather_into_tensor(
-                output_tensor=current_epoch_t_all,
-                input_tensor=current_epoch_t,
-                group=self.parallel_context.dp_pg
-            )
-            current_epoch_ranks = current_epoch_t_all.cpu().numpy()
-            current_epoch_all = current_epoch_ranks.mean()
-
-            num_consumed_seq_t = torch.tensor(num_consumed_sequences, device="cuda", dtype=torch.int64)
-            num_consumed_seq_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-            dist.all_gather_into_tensor(
-                output_tensor=num_consumed_seq_t_all,
-                input_tensor=num_consumed_seq_t,
-                group=self.parallel_context.dp_pg
-            )
-            num_consumed_seq_ranks = num_consumed_seq_t_all.cpu().numpy()
-            num_consumed_seq_all = num_consumed_seq_ranks.sum()
-            self.metadata.consumed_num_sequences += int(num_consumed_seq_all)
-            num_consumed_seq_log = self.metadata.consumed_num_sequences
-
-            mean_consumed_seq_len_t = torch.tensor(mean_seq_len, device="cuda", dtype=torch.float32)
-            mean_consumed_seq_len_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.float32)
-            dist.all_gather_into_tensor(
-                output_tensor=mean_consumed_seq_len_t_all,
-                input_tensor=mean_consumed_seq_len_t,
-                group=self.parallel_context.dp_pg
-            )
-            mean_consumed_seq_len_ranks = mean_consumed_seq_len_t_all.cpu().numpy()
-            mean_consumed_seq_len_all = mean_consumed_seq_len_ranks.mean()
-
-
+                current_dataset = dataloaders.dataset
         else:
-            num_consumed_files_all = None
-            current_epoch_all = None
-            num_consumed_seq_log = None
-            mean_consumed_seq_len_all = None
+            current_dataset = None
+
+        if current_dataset is not None and hasattr(current_dataset, "consumed_seq_len_queue"):
+            consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
+            mean_seq_len = np.mean(consumed_seq_lens)
+        else:
+            mean_seq_len = 0.0
+
+        if current_dataset is not None and  hasattr(current_dataset, "consumed_files"):
+            num_consumed_files = len(current_dataset.consumed_files)
+        else:
+            num_consumed_files = -1
+
+        if current_dataset is not None and  hasattr(current_dataset, "current_epoch"):
+            current_epoch = current_dataset.current_epoch
+        else:
+            current_epoch = -1
+
+        if current_dataset is not None and  hasattr(current_dataset, "num_consumed_sequences"):
+            num_consumed_sequences = current_dataset.num_consumed_sequences
+            current_dataset.num_consumed_sequences = 0
+        else:
+            num_consumed_sequences = 0
+
+        # Gather the values across all ranks
+        world_size_dp_pg = self.parallel_context.dp_pg.size()
+
+        num_consumed_files_t = torch.tensor(num_consumed_files, device="cuda", dtype=torch.int64)
+        num_consumed_files_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+        dist.all_gather_into_tensor(
+            output_tensor=num_consumed_files_t_all,
+            input_tensor=num_consumed_files_t,
+            group=self.parallel_context.dp_pg
+        )
+        num_consumed_files_ranks = num_consumed_files_t_all.cpu().numpy()
+        num_consumed_files_all = num_consumed_files_ranks.sum()
+        self.metadata.consumed_num_logan_files = int(num_consumed_files_all)
+
+        current_epoch_t = torch.tensor(current_epoch, device="cuda", dtype=torch.int64)
+        current_epoch_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+        dist.all_gather_into_tensor(
+            output_tensor=current_epoch_t_all,
+            input_tensor=current_epoch_t,
+            group=self.parallel_context.dp_pg
+        )
+        current_epoch_ranks = current_epoch_t_all.cpu().numpy()
+        current_epoch_all = current_epoch_ranks.mean()
+
+        num_consumed_seq_t = torch.tensor(num_consumed_sequences, device="cuda", dtype=torch.int64)
+        num_consumed_seq_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+        dist.all_gather_into_tensor(
+            output_tensor=num_consumed_seq_t_all,
+            input_tensor=num_consumed_seq_t,
+            group=self.parallel_context.dp_pg
+        )
+        num_consumed_seq_ranks = num_consumed_seq_t_all.cpu().numpy()
+        num_consumed_seq_all = num_consumed_seq_ranks.sum()
+        self.metadata.consumed_num_sequences += int(num_consumed_seq_all)
+        num_consumed_seq_log = self.metadata.consumed_num_sequences
+
+        mean_consumed_seq_len_t = torch.tensor(mean_seq_len, device="cuda", dtype=torch.float32)
+        mean_consumed_seq_len_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.float32)
+        dist.all_gather_into_tensor(
+            output_tensor=mean_consumed_seq_len_t_all,
+            input_tensor=mean_consumed_seq_len_t,
+            group=self.parallel_context.dp_pg
+        )
+        mean_consumed_seq_len_ranks = mean_consumed_seq_len_t_all.cpu().numpy()
+        mean_consumed_seq_len_all = mean_consumed_seq_len_ranks.mean()
 
         # Logging on logger ranks
         if dist.get_rank(self.parallel_context.world_pg) in self.logger_ranks:
