@@ -213,11 +213,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
     def decompression_func(self, input_data):
         path, data = input_data
-        # if self.debug:
-        #     self.logging_func(f"[{self.__class__.__name__}] Decompressing {path}")
-
-        # decompressed_data = zstd.decompress(data)
-
         try:
             dctx = zstandard.ZstdDecompressor()
             decompressed_data = dctx.decompress(data)
@@ -225,11 +220,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
             self.logger.warning(f"[PetaGraphStreamDataset] Error decompressing {path}: {e}")
             return path, None
 
-        # if self.debug:
-        #     num_mb_compressed = len(data) / 1024 / 1024
-        #     num_mb_decompressed = len(decompressed_data) / 1024 / 1024
-        #     self.logging_func(f"[{self.__class__.__name__}] Decompressed {num_mb_compressed:.2f} MB to {num_mb_decompressed:.2f} MB for {path}")
-        
         return path, decompressed_data
 
     def fasta_parsing_func(self, input_data):
@@ -238,19 +228,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         if data is None:
             return [[]]
 
-        # if self.debug:
-        #     self.logging_func(f"[{self.__class__.__name__}] Parsing {path}")
-
         sequences = []
-        decoded_lines = data.decode() # .split("\n")
-        # if self.debug:
-        #     self.logging_func(f"[{self.__class__.__name__}] Found {len(decoded_lines)} lines in {path}")
-
+        decoded_lines = data.decode()
         sequences = [(path, str(s.seq)) for s in SeqIO.parse(StringIO(decoded_lines), "fasta")]
-
-        # if self.debug:
-        #     self.logging_func(f"[{self.__class__.__name__}] Found {len(sequences)} sequences in {path}")
-        #     self.logging_func(f"[{self.__class__.__name__}] First sequence: {sequences[0]}")
 
         return sequences
 
@@ -276,7 +256,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         tokenized_sequence = np.array(tokenized_sequence, dtype=np.int32)
 
         # Pad the sequence
-
         if apply_pad and len(tokenized_sequence) < maxlen:
             # 2 is the PAD token
             tokenized_sequence = np.pad(tokenized_sequence,
@@ -284,19 +263,11 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                                         mode="constant",
                                         constant_values=self._pad_token_id)
 
-        # if len(tokenized_sequence) < maxlen:
-        #     tokenized_sequence.extend([2] * (maxlen - len(tokenized_sequence))) # 2 is the PAD token
-
         return tokenized_sequence
-        
-    # def __len__(self):
-    #     return self.samples_per_epoch
 
     def generate(self):
         current_tokens = None
         while True:
-            # if self.debug:
-            #     print(f"[{self.__class__.__name__}] Getting item {idx}")
 
             try:
                 source_path, text_raw = next(self.iterable_dataset)
@@ -358,8 +329,6 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                     yield {"input_ids": current_tokens}
                     current_tokens = None
 
-    
-    # def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
     def __iter__(self) -> dict[str, np.ndarray]:
 
         """Abstract method implementation

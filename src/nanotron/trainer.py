@@ -568,6 +568,67 @@ class DistributedTrainer:
             global_batch_size=self.global_batch_size,
         )
 
+        # Gather information from the dataloaders and log statistics
+        # Don't do this too often as it contains an allgather
+        if self.iteration_step < 5 or (self.iteration_step - 1) % self.config.checkpoints.checkpoint_interval == 0:
+            if dataloaders is not None:
+                if isinstance(dataloaders, tuple):
+                    current_dataset = dataloaders[0].dataset
+                elif isinstance(dataloaders, dict):
+                    current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
+                else:
+                    current_dataset = dataloaders.dataset
+            else:
+                current_dataset = None
+
+            if current_dataset is not None and hasattr(current_dataset, "consumed_seq_len_queue"):
+                consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
+                median_seq_len = np.median(consumed_seq_lens)
+                mean_seq_len = np.mean(consumed_seq_lens)
+            else:
+                median_seq_len = 0.0
+                mean_seq_len = 0.0
+
+            if current_dataset is not None and  hasattr(current_dataset, "consumed_files"):
+                num_consumed_files = len(current_dataset.consumed_files)
+            else:
+                num_consumed_files = -1
+
+            if current_dataset is not None and  hasattr(current_dataset, "current_epoch"):
+                current_epoch = current_dataset.current_epoch
+            else:
+                current_epoch = -1
+
+            # Gather the values across all ranks
+            world_size_dp_pg = self.parallel_context.dp_pg.size()
+
+            num_consumed_files_t = torch.tensor(num_consumed_files, device="cuda", dtype=torch.int64)
+            num_consumed_files_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+            dist.all_gather_into_tensor(
+                output_tensor=num_consumed_files_t_all,
+                input_tensor=num_consumed_files_t,
+                group=self.parallel_context.dp_pg
+            )
+            num_consumed_files_ranks = num_consumed_files_t_all.cpu().numpy()
+            log_rank(f"num_consumed_files_ranks: {num_consumed_files_ranks}", logger=logger, level=logging.INFO, rank=0)
+            num_consumed_files_all = num_consumed_files_ranks.sum()
+
+            current_epoch_t = torch.tensor(current_epoch, device="cuda", dtype=torch.int64)
+            current_epoch_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+            dist.all_gather_into_tensor(
+                output_tensor=current_epoch_t_all,
+                input_tensor=current_epoch_t,
+                group=self.parallel_context.dp_pg
+            )
+            current_epoch_ranks = current_epoch_t_all.cpu().numpy()
+            log_rank(f"current_epoch_ranks: {current_epoch_ranks}", logger=logger, level=logging.INFO, rank=0)
+            current_epoch_all = current_epoch_ranks.mean()
+
+        else:
+            num_consumed_files_all = None
+            current_epoch_all = None
+
+        # Logging on logger ranks
         if dist.get_rank(self.parallel_context.world_pg) in self.logger_ranks:
             assert self.loggerwriter is not None, "loggerwriter should be defined on logger ranks"
 
@@ -592,25 +653,11 @@ class DistributedTrainer:
                 LogItem("hardware_tflops_per_gpu", hardware_tflops, "human_format"),  # , ".2f"),
             ]
 
-            if dataloaders is not None:
-                if isinstance(dataloaders, tuple):
-                    current_dataset = dataloaders[0].dataset
-                elif isinstance(dataloaders, dict):
-                    current_dataset = dataloaders[list(dataloaders.keys())[0]].dataset
-                else:
-                    current_dataset = dataloaders.dataset
+            if num_consumed_files_all is not None:
+                log_entries.append(LogItem("num_consumed_files_all", num_consumed_files_all, "human_format"))
 
-                if hasattr(current_dataset, "consumed_seq_len_queue"):
-                    consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
-                    log_entries.append(LogItem("consumed_seq_lens_median", np.median(consumed_seq_lens), "human_format"))
-                    log_entries.append(LogItem("consumed_seq_lens_max", np.max(consumed_seq_lens), "human_format"))
-
-                if hasattr(current_dataset, "consumed_files"):
-                    num_consumed_files = len(current_dataset.consumed_files)
-                    log_entries.append(LogItem("num_consumed_files", num_consumed_files, "human_format"))
-
-                if hasattr(current_dataset, "current_epoch"):
-                    log_entries.append(LogItem("current_epoch", current_dataset.current_epoch, "human_format"))
+            if current_epoch_all is not None:
+                log_entries.append(LogItem("rank_avg_epoch", current_epoch_all, "human_format"))
 
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))
