@@ -82,6 +82,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
         self.rank = rank
         self.log_directory = log_directory
+        self.num_consumed_sequences = 0
         self.consumed_files_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
 
         # Take list of already consumed lists and remove them from the
@@ -272,6 +273,10 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                 if text_raw is None or len(text_raw) == 0:
                     continue
 
+                # Log the consumed sequences
+                self.num_consumed_sequences += 1
+                
+                # Log the consumed files
                 if self.log_directory is not None:
                     if source_path not in self.consumed_files:
                         with open(self.consumed_files_path, "a") as f:

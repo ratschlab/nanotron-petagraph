@@ -600,6 +600,12 @@ class DistributedTrainer:
             else:
                 current_epoch = -1
 
+            if current_dataset is not None and  hasattr(current_dataset, "num_consumed_sequences"):
+                num_consumed_sequences = current_dataset.num_consumed_sequences
+                current_dataset.num_consumed_sequences = 0
+            else:
+                num_consumed_sequences = 0
+
             # Gather the values across all ranks
             world_size_dp_pg = self.parallel_context.dp_pg.size()
 
@@ -624,9 +630,22 @@ class DistributedTrainer:
             current_epoch_ranks = current_epoch_t_all.cpu().numpy()
             current_epoch_all = current_epoch_ranks.mean()
 
+            num_consumed_seq_t = torch.tensor(num_consumed_sequences, device="cuda", dtype=torch.int64)
+            num_consumed_seq_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
+            dist.all_gather_into_tensor(
+                output_tensor=num_consumed_seq_t_all,
+                input_tensor=num_consumed_seq_t,
+                group=self.parallel_context.dp_pg
+            )
+            num_consumed_seq_ranks = num_consumed_seq_t_all.cpu().numpy()
+            num_consumed_seq_all = num_consumed_seq_ranks.sum()
+            self.metadata.consumed_num_sequences += int(num_consumed_seq_all)
+
+
         else:
             num_consumed_files_all = None
             current_epoch_all = None
+            num_consumed_seq_all = None
 
         # Logging on logger ranks
         if dist.get_rank(self.parallel_context.world_pg) in self.logger_ranks:
@@ -658,6 +677,9 @@ class DistributedTrainer:
 
             if current_epoch_all is not None:
                 log_entries.append(LogItem("rank_avg_epoch", current_epoch_all, "human_format"))
+
+            if num_consumed_seq_all is not None:
+                log_entries.append(LogItem("num_consumed_seq_all", num_consumed_seq_all, "human_format"))
 
             if self.config.optimizer.clip_grad is not None:
                 log_entries.append(LogItem("grad_norm", self.grad_norm_unclipped.item(), "human_format"))  # , ".3f"))
