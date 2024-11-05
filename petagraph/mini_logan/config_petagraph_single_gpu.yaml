@@ -1,0 +1,95 @@
+checkpoints:
+  checkpoint_interval: 1000
+  checkpoints_path: /home/manuel/projects/petagraph/nanotron-petagraph/logs/mini_logan/checkpoints
+  checkpoints_path_is_shared_file_system: true
+  resume_checkpoint_path: null # /users/burgerm/petagraph/logs/transcriptomics/base_ntp/checkpoints
+  save_initial_state: false
+data_stages:
+- data:
+    dataset: null # Custom dataloader will be used
+    num_loading_workers: 0
+    seed: 42
+    sequence_files_path: "/home/manuel/projects/petagraph/projects2024-petagraph-ml/data/eukaryota_transcriptomics_500_400_2024-10-03_09-33-14.csv"
+    all_sequences_resources_path: "/home/manuel/projects/petagraph/projects2024-petagraph-ml/data"
+    prefetch_buffer_seq_size: 20000
+  name: Stable Training Stage
+  start_training_step: 1
+general:
+  benchmark_csv_path: null
+  consumed_train_samples: null
+  ignore_sanity_checks: true
+  project: mini-logan-ntp-transcriptomics
+  run: mini-logan-v1
+  seed: 42
+  step: null
+lighteval: null
+logging:
+  iteration_step_info_interval: 50
+  log_level: info
+  log_level_replica: info
+model:
+  ddp_bucket_cap_mb: 25
+  dtype: bfloat16
+  init_method:
+    std: 0.025
+    truncated_normal_bound: 2.0
+  make_vocab_size_divisible_by: 1
+  model_config:
+    bos_token_id: 0
+    eos_token_id: 1
+    hidden_act: silu
+    hidden_size: 128
+    initializer_range: 0.025
+    intermediate_size: 2048
+    is_llama_config: true
+    max_position_embeddings: 4096
+    num_attention_heads: 2
+    num_hidden_layers: 16
+    num_key_value_heads: 2
+    pad_token_id: 2
+    pretraining_tp: 1
+    rms_norm_eps: 1.0e-05
+    rope_scaling: null
+    tie_word_embeddings: true
+    use_cache: true
+    vocab_size: 8
+optimizer:
+  accumulate_grad_in_fp32: true
+  clip_grad: 1.0
+  learning_rate_scheduler:
+    learning_rate: 1.0e-04
+    lr_decay_starting_step: 50_000
+    lr_decay_steps: null
+    lr_decay_style: cosine
+    lr_warmup_steps: 5_000
+    lr_warmup_style: linear
+    min_decay_lr: 1.0e-05
+  optimizer_factory:
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-07
+    name: adamW
+    torch_adam_is_fused: true
+  weight_decay: 0.01
+  zero_stage: 0
+parallelism:
+  dp: 1
+  expert_parallel_size: 1
+  pp: 1
+  pp_engine: 1f1b
+  tp: 1
+  tp_linear_async_communication: true
+  tp_mode: REDUCE_SCATTER
+profiler: null
+tokenizer:
+  tokenizer_max_length: null
+  tokenizer_name_or_path: robot-test/dummy-tokenizer-wordlevel
+  tokenizer_revision: null
+tokens:
+  batch_accumulation_per_replica: 1
+  limit_test_batches: 0
+  limit_val_batches: 0
+  micro_batch_size: 8
+  sequence_length: 4096
+  train_steps: 1_000_000
+  val_check_interval: -1
