@@ -378,8 +378,8 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         decoded_lines = data.decode()
         sequences = [str(s.seq) for s in SeqIO.parse(StringIO(decoded_lines), "fasta")]
 
-        # make sure only ALPHABET, TODO: align with training vocabulary allow "N" to pass through
-        sequences = ["".join([c for c in s if c in ALPHABET]) for s in sequences]
+        # make sure only ALPHABET
+        # sequences = ["".join([c for c in s if c in ALPHABET]) for s in sequences]
 
         # Chop sequences in preparation for graph traversal
         sequences = [self.chop_at_first_repeated_kmer(s, k=KMER_LENGTH) for s in sequences]
