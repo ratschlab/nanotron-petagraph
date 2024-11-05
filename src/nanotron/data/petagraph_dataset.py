@@ -206,7 +206,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
             self.iterable_dataset = iter(sequences_unbatched)
         else:
             self.iterable_dataset = self.cyclic_iter(sequences_unbatched)
-        self.logging_func(f"Sample: {next(self.iterable_dataset)}")
+
+        sample = next(self.iterable_dataset)
+        self.logging_func(f"Sample ({len(sample)}: {sample[:32]}")
 
         self.logging_func(f"Pipeline warmup:")
         warmup_sample_size = 1024
@@ -298,7 +300,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         graph = defaultdict(list)
 
         # Check for overlaps
-        for i, seq1 in tqdm(enumerate(sequences), total=len(sequences)):
+        for i, seq1 in enumerate(sequences):
             seq1_suffix = seq1[-min_overlap:]
             graph[i] = []
             for j in prefix_dict[seq1_suffix]:
