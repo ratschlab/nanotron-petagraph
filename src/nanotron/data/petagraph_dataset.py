@@ -390,11 +390,12 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         random_walk_sequences = self.random_walk_graph_sequences(sequence_graph, sequences_arr, k_mer=KMER_LENGTH)
 
         # Sample sequences for training
-        keep_sequences = list(filter(self.length_sampling_filter, random_walk_sequences))
+        keep_sequences = [(path, s) for s in filter(self.length_sampling_filter, random_walk_sequences)]
 
         # Test outputs
         assert isinstance(keep_sequences, list)
-        assert isinstance(keep_sequences[0], str)
+        assert isinstance(keep_sequences[0], tuple) and len(keep_sequences[0]) == 2
+        assert isinstance(keep_sequences[0][0], str) and isinstance(keep_sequences[0][1], str)
 
         return keep_sequences
 
