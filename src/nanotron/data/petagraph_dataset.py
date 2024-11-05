@@ -378,8 +378,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         decoded_lines = data.decode()
         sequences = [str(s.seq) for s in SeqIO.parse(StringIO(decoded_lines), "fasta")]
 
-        # make sure only ALPHABET
-        # sequences = ["".join([c for c in s if c in ALPHABET]) for s in sequences]
+        # Following DNA-BERTv2: https://arxiv.org/pdf/2306.15006
+        # Zhou et al.: "We exclude all sequences with N and retain only sequences that consist of A, T, C, and G.
+        sequences = [s for s in sequences if set(s).issubset(ALPHABET)]
 
         # Chop sequences in preparation for graph traversal
         sequences = [self.chop_at_first_repeated_kmer(s, k=KMER_LENGTH) for s in sequences]
