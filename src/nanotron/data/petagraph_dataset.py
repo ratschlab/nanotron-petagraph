@@ -792,7 +792,7 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         """
         path, data = input_data
         if data is None:
-            return [[]]
+            return [("", "")]
 
         sequences = []
         decoded_lines = data.decode()
@@ -815,11 +815,14 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
         # Test outputs
         if len(keep_sequences) == 0:
-            return [[]]
+            return [("", "")]
         
         assert isinstance(keep_sequences, list)
         assert isinstance(keep_sequences[0], tuple) and len(keep_sequences[0]) == 2
         assert isinstance(keep_sequences[0][0], str) and isinstance(keep_sequences[0][1], str)
+
+        # Shuffle the sequences
+        random.shuffle(keep_sequences)
 
         return keep_sequences
 
