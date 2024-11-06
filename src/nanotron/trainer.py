@@ -604,7 +604,14 @@ class DistributedTrainer:
             current_dataset = None
 
         if current_dataset is not None and hasattr(current_dataset, "consumed_seq_len_queue"):
-            consumed_seq_lens = np.array(list(current_dataset.consumed_seq_len_queue), dtype=np.int64)
+            seq_queue = current_dataset.consumed_seq_len_queue
+            queue_size = seq_queue.qsize() - 1
+            consumed_seq_lens = []
+            if queue_size > 0:
+                for _ in range(queue_size):
+                    consumed_seq_lens.append(seq_queue.get())
+
+            consumed_seq_lens = np.array(consumed_seq_lens, dtype=np.int64)
             mean_seq_len = np.mean(consumed_seq_lens)
         else:
             mean_seq_len = 0.0
@@ -620,8 +627,10 @@ class DistributedTrainer:
             current_epoch = -1
 
         if current_dataset is not None and  hasattr(current_dataset, "num_consumed_sequences"):
-            num_consumed_sequences = current_dataset.num_consumed_sequences
-            current_dataset.num_consumed_sequences = 0
+            num_consumed_sequences_obj = current_dataset.num_consumed_sequences
+            with num_consumed_sequences_obj.get_lock():
+                num_consumed_sequences = num_consumed_sequences_obj.value
+                num_consumed_sequences_obj.value = 0
         else:
             num_consumed_sequences = 0
 

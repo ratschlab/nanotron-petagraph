@@ -30,6 +30,8 @@ from collections import defaultdict, deque
 # import line_profiler
 import requests
 
+import queue
+
 
 # =============================================================================
 # Utility functions
@@ -578,7 +580,10 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
         self.rank = rank
         self.log_directory = log_directory
-        self.num_consumed_sequences = 0
+
+        # Shared memory structures for statistics
+        self.num_consumed_sequences = mp.Value("i", 0, lock=True)
+
         self.consumed_files_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
         self.consumed_files_lock = mp.Lock()
 
@@ -630,7 +635,9 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         self.url_list = url_list
         self.url_index = 0
 
-        self.consumed_seq_len_queue = deque(maxlen=5000)
+        # self.consumed_seq_len_queue = deque(maxlen=5000)
+        self.consumed_seq_len_queue = mp.Manager().Queue(maxsize=5000)
+
         if self.log_directory is not None:
             self.logging_func(f"[PetaGraphStreamDataset] Logging to {self.log_directory} on rank {self.rank}")
 
@@ -875,12 +882,12 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
                     # else:
                     #     worker_id = worker_info.id
 
-                    raw_stream = requests.get(new_url, stream=True)
                     try:
+                        raw_stream = requests.get(new_url, stream=True)
                         dctx = zstandard.ZstdDecompressor()
                         decompressed_data = dctx.decompress(raw_stream.content)
                     except Exception as e:
-                        self.logger.warning(f"[PetaGraphStreamDataset] Error decompressing {source_path}: {e}")
+                        self.logger.warning(f"[PetaGraphStreamDataset] Error downloading/decompressing {source_path}: {e}")
                         continue
 
                     current_sequences = self.fasta_parsing_func((source_path, decompressed_data))
@@ -891,7 +898,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
                     continue
 
                 # Log the consumed sequences
-                self.num_consumed_sequences += 1
+                with self.num_consumed_sequences.get_lock():
+                    self.num_consumed_sequences.value += 1
                 
                 # Log the consumed files
                 if self.log_directory is not None:
@@ -919,7 +927,11 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
                 # Log the consumed sequence length
                 text_length = len(text_cropped)
-                self.consumed_seq_len_queue.append(text_length)
+                # self.consumed_seq_len_queue.append(text_length)
+                try:
+                    self.consumed_seq_len_queue.put_nowait(text_length)
+                except queue.Full:
+                    pass
 
                 # Tokenize and pad the sequence
                 text_tokenized = self.tokenize_and_pad(text_cropped)
@@ -937,7 +949,11 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
                 # Log the consumed sequence length
                 text_length = len(text_cropped)
-                self.consumed_seq_len_queue.append(text_length)
+                # self.consumed_seq_len_queue.append(text_length)
+                try:
+                    self.consumed_seq_len_queue.put_nowait(text_length)
+                except queue.Full:
+                    pass
 
                 new_tokens = self.tokenize_and_pad(text_cropped, apply_pad=False)
                 if current_tokens is None:
