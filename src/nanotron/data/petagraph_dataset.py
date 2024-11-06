@@ -618,7 +618,11 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
             restart_consumed_files_set = set(restart_consumed_files)
             for f in restart_consumed_files_set:
                 url_list.remove(f)
-            url_list.extend(restart_consumed_files)
+            
+            # For now we don't append the consumed files to the end of the url_list
+            # As in multiprocessing setting we index into arbirary positions
+            # and we don't want to index into the consumed files
+            # url_list.extend(restart_consumed_files)
 
             # Add the consumed files to the consumed files set
             self.consumed_files = set(restart_consumed_files)
@@ -626,7 +630,7 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
             # Set the current epoch to the restart epoch
             self.current_epoch = restart_epoch
 
-            log_msg = f"[PetaGAdd lockaphStreamDataset:{self.rank}] Restarting from epoch {self.current_epoch} with {len(self.consumed_files)} files"
+            log_msg = f"[PetaGraphStreamDataset:{self.rank}] Restarting from epoch {self.current_epoch} with {len(self.consumed_files)} files, {len(url_list)} files left"
             log_rank(log_msg, logger=logger, level=logging.INFO, rank=self.rank)
         else:
             self.consumed_files = set()
