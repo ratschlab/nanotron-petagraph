@@ -630,32 +630,41 @@ class DistributedTrainer:
 
         num_consumed_files_t = torch.tensor(num_consumed_files, device="cuda", dtype=torch.int64)
         num_consumed_files_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-        dist.all_gather_into_tensor(
-            output_tensor=num_consumed_files_t_all,
-            input_tensor=num_consumed_files_t,
-            group=self.parallel_context.dp_pg
-        )
+        if world_size_dp_pg > 1:
+            dist.all_gather_into_tensor(
+                output_tensor=num_consumed_files_t_all,
+                input_tensor=num_consumed_files_t,
+                group=self.parallel_context.dp_pg
+            )
+        else:
+            num_consumed_files_t_all = num_consumed_files_t
         num_consumed_files_ranks = num_consumed_files_t_all.cpu().numpy()
         num_consumed_files_all = num_consumed_files_ranks.sum()
         self.metadata.consumed_num_logan_files = int(num_consumed_files_all)
 
         current_epoch_t = torch.tensor(current_epoch, device="cuda", dtype=torch.int64)
         current_epoch_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-        dist.all_gather_into_tensor(
-            output_tensor=current_epoch_t_all,
-            input_tensor=current_epoch_t,
-            group=self.parallel_context.dp_pg
-        )
+        if world_size_dp_pg > 1:
+            dist.all_gather_into_tensor(
+                output_tensor=current_epoch_t_all,
+                input_tensor=current_epoch_t,
+                group=self.parallel_context.dp_pg
+            )
+        else:
+            current_epoch_t_all = current_epoch_t
         current_epoch_ranks = current_epoch_t_all.cpu().numpy()
         current_epoch_all = current_epoch_ranks.mean()
 
         num_consumed_seq_t = torch.tensor(num_consumed_sequences, device="cuda", dtype=torch.int64)
         num_consumed_seq_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.int64)
-        dist.all_gather_into_tensor(
-            output_tensor=num_consumed_seq_t_all,
-            input_tensor=num_consumed_seq_t,
-            group=self.parallel_context.dp_pg
-        )
+        if world_size_dp_pg > 1:
+            dist.all_gather_into_tensor(
+                output_tensor=num_consumed_seq_t_all,
+                input_tensor=num_consumed_seq_t,
+                group=self.parallel_context.dp_pg
+            )
+        else:
+            num_consumed_seq_t_all = num_consumed_seq_t
         num_consumed_seq_ranks = num_consumed_seq_t_all.cpu().numpy()
         num_consumed_seq_all = num_consumed_seq_ranks.sum()
         self.metadata.consumed_num_sequences += int(num_consumed_seq_all)
@@ -663,11 +672,14 @@ class DistributedTrainer:
 
         mean_consumed_seq_len_t = torch.tensor(mean_seq_len, device="cuda", dtype=torch.float32)
         mean_consumed_seq_len_t_all = torch.zeros(world_size_dp_pg, device="cuda", dtype=torch.float32)
-        dist.all_gather_into_tensor(
-            output_tensor=mean_consumed_seq_len_t_all,
-            input_tensor=mean_consumed_seq_len_t,
-            group=self.parallel_context.dp_pg
-        )
+        if world_size_dp_pg > 1:
+            dist.all_gather_into_tensor(
+                output_tensor=mean_consumed_seq_len_t_all,
+                input_tensor=mean_consumed_seq_len_t,
+                group=self.parallel_context.dp_pg
+            )
+        else:
+            mean_consumed_seq_len_t_all = mean_consumed_seq_len_t
         mean_consumed_seq_len_ranks = mean_consumed_seq_len_t_all.cpu().numpy()
         mean_consumed_seq_len_all = mean_consumed_seq_len_ranks.mean()
 
