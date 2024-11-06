@@ -536,6 +536,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         The sequence length at which to switch from sampling to keeping the sequence
         below the inflection point we only keep the sequence with a probability pr
         to its length. Above the inflection point we always keep the sequence.
+    reverse_probability : float
+        The probability to reverse the sequence. Only active if != 0.0
     """
 
     def __init__(self, 
@@ -550,13 +552,15 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         log_directory: Path = None,
         rank: int = 0,
         packed: bool = False,
-        sampling_seq_len_inflection: int = 1024
+        sampling_seq_len_inflection: int = 1024,
+        reverse_probability: float = 0.0
     ):
 
         self.maxlen = maxlen
         self.create_attention_mask = create_attention_mask
         self.debug = debug
         self.sampling_seq_len_inflection = sampling_seq_len_inflection
+        self.reverse_probability = reverse_probability
         
 
         self.logger = logger
@@ -567,6 +571,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         self.logging_func(f"[PetaGraphStreamDataset] Num. URLs: {len(url_list)}")
         self.logging_func(f"[PetaGraphStreamDataset] From Cloud: {from_cloud}")
         self.logging_func(f"[PetaGraphStreamDataset] Sampling Seq. Len. Inflection: {self.sampling_seq_len_inflection}")
+        if self.reverse_probability > 0.0:
+            self.logging_func(f"[PetaGraphStreamDataset] Reverse Probability: {self.reverse_probability}")
 
         self.VOCAB = vocabulary
         self._pad_token_id = self.VOCAB["PAD"]
@@ -858,6 +864,10 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
             tokenized_sequence.append(self._eos_token_id) # end with EOS token
         tokenized_sequence = np.array(tokenized_sequence, dtype=np.int32)
 
+        if self.reverse_probability > 0.0:
+            if np.random.rand() < self.reverse_probability:
+                tokenized_sequence = tokenized_sequence[::-1]
+
         # Pad the sequence
         if apply_pad and len(tokenized_sequence) < maxlen:
             # 2 is the PAD token
@@ -964,8 +974,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
                     current_tokens = new_tokens
                 else:
                     # Check the last token of the current sequence
-                    # is an EOS token
-                    assert current_tokens[-1] == self._eos_token_id
+                    # is an EOS token or BOS token (if reverse_probability > 0.0)
+                    assert current_tokens[-1] == self._eos_token_id or (self.reverse_probability > 0.0 and current_tokens[-1] == self._bos_token_id)
                     current_tokens = np.concatenate([current_tokens, new_tokens])
 
                 if len(current_tokens) >= self.maxlen:

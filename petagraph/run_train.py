@@ -241,7 +241,8 @@ def get_dataloader_from_data_stage(
                 create_attention_mask=True,
                 log_directory=trainer.config.checkpoints.checkpoints_path,
                 rank=global_rank,
-                packed=True
+                packed=True,
+                reverse_probability=data.reverse_probability,
             )
 
 

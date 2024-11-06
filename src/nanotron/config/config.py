@@ -130,6 +130,7 @@ class DataArgs:
     sequence_files_path: Optional[str] = None
     prefetch_buffer_seq_size: Optional[int] = 1
     all_sequences_resources_path: Optional[str] = None
+    reverse_probability: float = 0.0
 
     def __post_init__(self):
         if self.seed is None:
