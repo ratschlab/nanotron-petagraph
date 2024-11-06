@@ -16,6 +16,7 @@ from tqdm import tqdm
 import numpy as np
 from typing import Dict, Optional, Tuple
 import json
+import multiprocessing as mp
 
 # import zstd
 import zstandard
@@ -105,7 +106,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         self.log_directory = log_directory
         self.num_consumed_sequences = 0
         self.consumed_files_path = self.log_directory / f"consumed_files/consumed_files_rank_{self.rank}.txt"
-
+        self.consumed_files_lock = mp.Lock()
 
         # Save the vocabulary as json on head node
         if self.rank == 0:
@@ -192,7 +193,7 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
             # sequences_unbatched = sequences_unbatched.prefetch(self.prefetch_sequences)
 
             self.logging_func(f"Prefetching and shuffling {self.prefetch_sequences} unbatched sequences")
-            sequences_unbatched = Shuffler(sequences_unbatched, buffer_size=self.prefetch_sequences)
+            sequences_unbatched = Shuffler(sequences_unbatched, buffer_size=self.prefetch_sequences).prefetch(16_000)
 
         # sequences_crop = Mapper(sequences_unbatched, self.crop_maxlen)
         # sequences_tokenized = Mapper(sequences_crop, self.tokenize_and_pad)
@@ -396,6 +397,9 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
         keep_sequences = [(path, s) for s in filter(self.length_sampling_filter, random_walk_sequences)]
 
         # Test outputs
+        if len(keep_sequences) == 0:
+            return [[]]
+        
         assert isinstance(keep_sequences, list)
         assert isinstance(keep_sequences[0], tuple) and len(keep_sequences[0]) == 2
         assert isinstance(keep_sequences[0][0], str) and isinstance(keep_sequences[0][1], str)
@@ -447,8 +451,12 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
                 # Log the consumed files
                 if self.log_directory is not None:
                     if source_path not in self.consumed_files:
+
+                        self.consumed_files_lock.acquire()
                         with open(self.consumed_files_path, "a") as f:
                             f.write(f"{self.current_epoch}_{source_path}\n")
+                        self.consumed_files_lock.release()
+
                 self.consumed_files.add(source_path)
                 if len(self.consumed_files) == self.num_files:
                     self.current_epoch += 1
