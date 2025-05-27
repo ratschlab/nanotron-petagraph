@@ -522,9 +522,10 @@ class PetaGraphStreamDataset(torch.utils.data.IterableDataset):
 
 
 
-
-
-
+STRING_COMPLEMENT_MAP = {
+    "A": "T", "C": "G", "G": "C", "T": "A", "a": "t", "c": "g", "g": "c", "t": "a",
+    "N": "N", "n": "n",
+}
 
 
 class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
@@ -553,7 +554,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         rank: int = 0,
         packed: bool = False,
         sampling_seq_len_inflection: int = 1024,
-        reverse_probability: float = 0.0
+        reverse_probability: float = 0.0,
+        build_graph: bool = False
     ):
 
         self.maxlen = maxlen
@@ -573,6 +575,13 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         self.logging_func(f"[PetaGraphStreamDataset] Sampling Seq. Len. Inflection: {self.sampling_seq_len_inflection}")
         if self.reverse_probability > 0.0:
             self.logging_func(f"[PetaGraphStreamDataset] Reverse Probability: {self.reverse_probability}")
+            self.logging_func(f"[PetaGraphStreamDataset] Computing reverse complements for some sequences.")
+
+        self.build_graph = build_graph
+        if self.build_graph:
+            self.logging_func(f"[PetaGraphStreamDataset] Building sequence graph and sample random walks to increase seq. length")
+        else:
+            self.logging_func(f"[PetaGraphStreamDataset] Not building sequence graph")
 
         self.VOCAB = vocabulary
         self._pad_token_id = self.VOCAB["PAD"]
@@ -789,8 +798,13 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
     def length_sampling_filter(self, sequence: str) -> bool:
         seq_len = len(sequence)
+
+        # Keep all sequences above the inflection point
         if seq_len >= self.sampling_seq_len_inflection:
             return True
+
+        # Below the inflection point we sample sequences
+        # with a probability that is proportional to the sequence length
         else:
             prob = np.random.rand()
             if prob < (seq_len / self.sampling_seq_len_inflection):
@@ -799,7 +813,7 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         return False
 
 
-    def fasta_parsing_func(self, input_data: Tuple[str, bytes]):
+    def fasta_parsing_func(self, input_data: Tuple[str, bytes]) -> deque[tuple[str, ...]]:
         """Parse the fasta data and return the sequences
         
         Parameters
@@ -809,30 +823,39 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         """
         path, data = input_data
         if data is None:
-            return [("", "")]
+            return deque([(path, "")])
 
         sequences = []
         decoded_lines = data.decode()
         sequences = [str(s.seq) for s in SeqIO.parse(StringIO(decoded_lines), "fasta")]
+        loaded_length = len(sequences)
 
         # Following DNA-BERTv2: https://arxiv.org/pdf/2306.15006
         # Zhou et al.: "We exclude all sequences with N and retain only sequences that consist of A, T, C, and G.
         sequences = [s for s in sequences if set(s).issubset(ALPHABET)]
+        after_alphabet_filter_length = len(sequences)
+        
+        if self.build_graph:
+            # Chop sequences in preparation for graph traversal
+            sequences = [self.chop_at_first_repeated_kmer(s, k=KMER_LENGTH) for s in sequences]
 
-        # Chop sequences in preparation for graph traversal
-        sequences = [self.chop_at_first_repeated_kmer(s, k=KMER_LENGTH) for s in sequences]
+            # Construct sequence graph and perform random walks
+            sequences_arr = np.array(sequences)
+            sequence_graph = self.find_overlaps_and_build_graph(sequences_arr, k_mer=KMER_LENGTH)
+            random_walk_sequences = self.random_walk_graph_sequences(sequence_graph, sequences_arr, k_mer=KMER_LENGTH)
+            sequences = random_walk_sequences
 
-        # Construct sequence graph and perform random walks
-        sequences_arr = np.array(sequences)
-        sequence_graph = self.find_overlaps_and_build_graph(sequences_arr, k_mer=KMER_LENGTH)
-        random_walk_sequences = self.random_walk_graph_sequences(sequence_graph, sequences_arr, k_mer=KMER_LENGTH)
+        # Sample sequences for training based on length
+        keep_sequences = [(path, s) for s in filter(self.length_sampling_filter, sequences)]
+        after_length_filter_length = len(keep_sequences)
 
-        # Sample sequences for training
-        keep_sequences = [(path, s) for s in filter(self.length_sampling_filter, random_walk_sequences)]
+        # Log how many sequences were parsed
+        log_msg = f"[PetaGraphStreamDataset:{self.rank}] Parsed {loaded_length} > {after_alphabet_filter_length} > {after_length_filter_length} sequences from {path}"
+        log_rank(log_msg, logger=self.logger, level=logging.INFO, rank=self.rank)
 
         # Test outputs
         if len(keep_sequences) == 0:
-            return [("", "")]
+            return deque([(path, "")])
         
         assert isinstance(keep_sequences, list)
         assert isinstance(keep_sequences[0], tuple) and len(keep_sequences[0]) == 2
@@ -841,7 +864,7 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
         # Shuffle the sequences
         random.shuffle(keep_sequences)
 
-        return keep_sequences
+        return deque(keep_sequences)
 
     def crop_maxlen(self, input_sequence: str, maxlen: int = None):
         # path, input_sequence = input_data
@@ -864,9 +887,10 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
             tokenized_sequence.append(self._eos_token_id) # end with EOS token
         tokenized_sequence = np.array(tokenized_sequence, dtype=np.int32)
 
-        if self.reverse_probability > 0.0:
-            if np.random.rand() < self.reverse_probability:
-                tokenized_sequence = tokenized_sequence[::-1]
+        # No longer done here, done in the `generate` method, 5th Feb 2025
+        # if self.reverse_probability > 0.0:
+        #     if np.random.rand() < self.reverse_probability:
+        #         tokenized_sequence = tokenized_sequence[::-1]
 
         # Pad the sequence
         if apply_pad and len(tokenized_sequence) < maxlen:
@@ -880,7 +904,8 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
     def generate(self):
         current_tokens = None
-        current_sequences = []
+        current_sequences = deque()
+        last_reversed = False
         while True:
             try:
                 
@@ -906,14 +931,25 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
 
                     current_sequences = self.fasta_parsing_func((source_path, decompressed_data))
 
-                # Remove the first sequence
-                source_path, text_raw = current_sequences.pop(0)
-                if text_raw is None or len(text_raw) == 0:
-                    continue
 
-                # Log the consumed sequences
-                with self.num_consumed_sequences.get_lock():
-                    self.num_consumed_sequences.value += 1
+                # We're performing reverse complementation augmentations
+                if self.reverse_probability > 0.0:
+                    # Apply the augmentation at random and only once per sequence
+                    if np.random.rand() < self.reverse_probability and not last_reversed:
+                        last_reversed = True
+                        # Just read the first sequence, but don't pop it
+                        # Next iteration will read the same sequence again
+                        source_path, text_raw = current_sequences[0]
+                        text_raw = "".join([STRING_COMPLEMENT_MAP[base] for base in text_raw[::-1]])
+
+                    else:
+                        last_reversed = False
+                        source_path, text_raw = current_sequences.popleft()
+
+                # No rev. comp. augmentations
+                else:
+                    source_path, text_raw = current_sequences.popleft()
+
                 
                 # Log the consumed files
                 if self.log_directory is not None:
@@ -929,6 +965,13 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
                     self.current_epoch += 1
                     self.logging_func(f"Epoch {self.current_epoch} completed")
                     self.consumed_files = set()
+
+                if text_raw is None or len(text_raw) == 0:
+                    continue
+
+                # Log the consumed sequences
+                with self.num_consumed_sequences.get_lock():
+                    self.num_consumed_sequences.value += 1
 
             except StopIteration as e:
                 self.logger.warning(f"Reached end of dataset: {e}")
@@ -975,7 +1018,7 @@ class PetaGraphStreamDatasetV2(torch.utils.data.IterableDataset):
                 else:
                     # Check the last token of the current sequence
                     # is an EOS token or BOS token (if reverse_probability > 0.0)
-                    assert current_tokens[-1] == self._eos_token_id or (self.reverse_probability > 0.0 and current_tokens[-1] == self._bos_token_id)
+                    assert current_tokens[-1] == self._eos_token_id
                     current_tokens = np.concatenate([current_tokens, new_tokens])
 
                 if len(current_tokens) >= self.maxlen:

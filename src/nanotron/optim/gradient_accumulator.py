@@ -291,7 +291,14 @@ class FP32GradientAccumulator(GradientAccumulator):
 
         with torch.inference_mode():
             for name, elt in self.parameters.items():
-                elt["fp32"].copy_(state_dict[name])
+                param = state_dict[name]
+                if len(param) != len(elt["fp32"]):
+                    logger.warning(
+                        f"Expected {name} to have the same size as {elt['fp32'].size()}, but got {param.size()}"
+                    )
+                    elt["fp32"].copy_(param[: len(elt["fp32"])])
+                else:
+                    elt["fp32"].copy_(param)
 
 
 @dataclasses.dataclass

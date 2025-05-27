@@ -1,6 +1,6 @@
 checkpoints:
   checkpoint_interval: 100
-  checkpoints_path: /users/burgerm/petagraph/logs/dev/checkpoints
+  checkpoints_path: /users/burgerm/petagraph/logs/transcriptomics/base_ntp/checkpoints
   checkpoints_path_is_shared_file_system: true
   resume_checkpoint_path: null
   save_initial_state: false
@@ -9,7 +9,7 @@ data_stages:
     dataset: null # Custom dataloader will be used
     num_loading_workers: 0
     seed: 42
-    sequence_files_path: "/users/burgerm/petagraph/resources/training_sets/dev_wgs_fungi_2022.csv"
+    sequence_files_path: "/users/burgerm/petagraph/resources/training_sets/transcriptomics/eukaryota_transcriptomics_500_400_2024-10-03_09-33-14.csv"
     all_sequences_resources_path: "/users/burgerm/petagraph/resources"
     prefetch_buffer_seq_size: 2048
   name: Stable Training Stage
@@ -90,5 +90,5 @@ tokens:
   limit_val_batches: 0
   micro_batch_size: 128
   sequence_length: 1024
-  train_steps: 1000
+  train_steps: 2000
   val_check_interval: -1
